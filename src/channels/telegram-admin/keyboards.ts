@@ -75,11 +75,35 @@ export function staffKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
     .text("Кто в штате", "staff:list")
     .row()
-    .text("Назначить админа", "staff:assign:admin")
+    .text("Кто писал боту", "staff:visitors")
     .row()
-    .text("Назначить суперадмина", "staff:assign:superadmin")
+    .text("Назначить по @username", "staff:assign:admin")
     .row()
-    .text("Забрать доступ", "staff:revoke");
+    .text("Забрать по @username", "staff:revoke");
+}
+
+/** Карточка человека: роли кнопками. id = telegramUserId. */
+export function staffUserCardKeyboard(input: {
+  telegramUserId: string;
+  role: StaffRole | null;
+  isOwner: boolean;
+  canRevoke: boolean;
+}): InlineKeyboard {
+  const id = input.telegramUserId;
+  const keyboard = new InlineKeyboard();
+  if (!input.isOwner) {
+    if (input.role !== "admin") {
+      keyboard.text("Сделать админом", `staff:role:admin:${id}`).row();
+    }
+    if (input.role !== "superadmin") {
+      keyboard.text("Сделать суперадмином", `staff:role:super:${id}`).row();
+    }
+    if (input.canRevoke && input.role) {
+      keyboard.text("Забрать доступ", `staff:rev:${id}`).row();
+    }
+  }
+  keyboard.text("← К штату", "staff:menu");
+  return keyboard;
 }
 
 export function knowledgeKeyboard(): InlineKeyboard {

@@ -14,7 +14,15 @@ import type { SchoolEventService } from "../../platform/events/event.service.js"
 import type { SchoolEventKind } from "../../platform/events/types.js";
 import type { EscalationService } from "../../platform/escalation/escalation.service.js";
 import { ConfirmationRequiredError } from "../../platform/shared/errors.js";
-import { confirmSendKeyboard, broadcastPickerKeyboard, mainMenuKeyboard, orgKeyboard, pageButtons, staffKeyboard } from "./keyboards.js";
+import {
+  confirmSendKeyboard,
+  broadcastPickerKeyboard,
+  mainMenuKeyboard,
+  orgKeyboard,
+  pageButtons,
+  staffKeyboard,
+  staffUserCardKeyboard,
+} from "./keyboards.js";
 import type { NotesService } from "../../platform/notes/notes.service.js";
 import type { ChatAudience, ChatRecord } from "../../platform/org/types.js";
 
@@ -225,10 +233,7 @@ export class AdminPanel {
         if (!hasAtLeast(user.role, "superadmin")) {
           return this.decorate(user, { text: "Штат может смотреть только суперадмин." });
         }
-        return this.decorate(user, {
-          text: await this.staffText(user),
-          inline: staffKeyboard(),
-        });
+        return this.staffMenu(user);
       case "заметки":
         if (!hasAtLeast(user.role, "superadmin")) {
           return this.decorate(user, { text: "Заметки только для суперадмина." });
@@ -273,31 +278,15 @@ export class AdminPanel {
       await this.conversations.setPendingUi(user.telegramUserId, { kind: "escalate_answer", escalationId: take[1] });
       return this.decorate(user, { text: prompt });
     }
-    if (data === "staff:list") {
-      return this.decorate(user, { text: await this.staffText(user), inline: staffKeyboard() });
+    if (data === "staff:menu" || data.startsWith("staff:")) {
+      const reply = await this.staffRoute(user, data);
+      reply.edit = true;
+      return reply;
     }
     if (data === "notes" || data.startsWith("notes:")) {
       const reply = await this.notesRoute(user, data);
       reply.edit = true;
       return reply;
-    }
-    if (data === "staff:assign:admin") {
-      await this.conversations.setPendingUi(user.telegramUserId, { kind: "assign_role", role: "admin" });
-      return this.decorate(user, {
-        text: "Пришли username или telegram id человека, которого сделать **админом**. Пусть он сначала напишет боту.",
-      });
-    }
-    if (data === "staff:assign:superadmin") {
-      await this.conversations.setPendingUi(user.telegramUserId, { kind: "assign_role", role: "superadmin" });
-      return this.decorate(user, {
-        text: "Пришли username или telegram id человека, которого сделать **суперадмином**.",
-      });
-    }
-    if (data === "staff:revoke") {
-      await this.conversations.setPendingUi(user.telegramUserId, { kind: "revoke_role" });
-      return this.decorate(user, {
-        text: "Пришли username или telegram id, у кого забрать доступ.",
-      });
     }
     if (data === "kb:search") {
       return this.knowledgeList(user);
@@ -810,23 +799,32 @@ export class AdminPanel {
       await this.conversations.setPendingUi(user.telegramUserId, null);
       return pendingDenied;
     }
-    await this.conversations.setPendingUi(user.telegramUserId, null);
-    const target = parseStaffTarget(text);
-    try {
-      if (pending.kind === "assign_role") {
-        const updated = await this.staff.assignRole(user, target, pending.role);
-        return this.decorate(user, {
-          text: `Готово. ${updated.username ? `@${updated.username}` : updated.telegramUserId} теперь **${roleLabel(updated.role)}**.`,
-          inline: staffKeyboard(),
-        });
-      }
-      if (pending.kind === "revoke_role") {
+    if (pending.kind === "assign_role" || pending.kind === "revoke_role") {
+      const target = parseStaffTarget(text);
+      try {
+        if (pending.kind === "assign_role") {
+          const updated = await this.staff.assignRole(user, target, pending.role);
+          await this.conversations.setPendingUi(user.telegramUserId, null);
+          return this.decorate(user, {
+            text: `Готово. ${updated.username ? `@${updated.username}` : updated.telegramUserId} теперь **${roleLabel(updated.role)}**.`,
+            inline: staffKeyboard(),
+          });
+        }
         await this.staff.revoke(user, target);
+        await this.conversations.setPendingUi(user.telegramUserId, null);
         return this.decorate(user, {
           text: "Доступ забрал.",
           inline: staffKeyboard(),
         });
+      } catch (error) {
+        return this.decorate(user, {
+          text: `${error instanceof Error ? error.message : "Не получилось."}\n\nПришли другой @username / id или открой человека в списках штата.`,
+          inline: staffKeyboard(),
+        });
       }
+    }
+    await this.conversations.setPendingUi(user.telegramUserId, null);
+    try {
       if (pending.kind === "escalate_answer") {
         return this.decorate(user, {
           text: await this.escalationService.resolve(user, pending.escalationId, text),
@@ -1009,14 +1007,174 @@ export class AdminPanel {
     return this.decorate(user, { text: "Это уже не твоя зона. Нужна роль повыше." });
   }
 
-  private async staffText(user: StaffUser): Promise<string> {
-    const people = await this.staff.listStaff(user);
-    const lines = people.map((person) => {
-      const name = person.isOwner ? MASTER_KOLOTUSHIN : person.displayName ?? person.username ?? person.telegramUserId;
-      const nick = person.username ? ` @${person.username}` : "";
-      return `• **${name}**${nick} — ${roleLabel(person.role)}`;
+  private staffMenu(user: StaffUser): BotReply {
+    return this.decorate(user, {
+      text:
+        "**Штат**\n\nОткрой человека из списка и поменяй роль кнопками. Если его ещё нет в списках — пусть напишет боту, или назначь по @username / telegram id.",
+      inline: staffKeyboard(),
     });
-    return `**Штат**\n\n${lines.join("\n")}`;
+  }
+
+  private async staffRoute(user: StaffUser, data: string): Promise<BotReply> {
+    if (data === "staff:menu") {
+      return this.staffMenu(user);
+    }
+    if (data === "staff:list") {
+      return this.staffListScreen(user, 0);
+    }
+    const listPage = /^staff:list:(\d+)$/.exec(data);
+    if (listPage) {
+      return this.staffListScreen(user, Number(listPage[1]));
+    }
+    if (data === "staff:visitors") {
+      return this.staffVisitorsScreen(user, 0);
+    }
+    const visitorsPage = /^staff:visitors:(\d+)$/.exec(data);
+    if (visitorsPage) {
+      return this.staffVisitorsScreen(user, Number(visitorsPage[1]));
+    }
+    const openUser = /^staff:u:(.+)$/.exec(data);
+    if (openUser?.[1]) {
+      return this.staffUserCard(user, openUser[1]);
+    }
+    const setRole = /^staff:role:(admin|super):(.+)$/.exec(data);
+    if (setRole?.[1] && setRole[2]) {
+      const role: StaffRole = setRole[1] === "super" ? "superadmin" : "admin";
+      try {
+        const updated = await this.staff.assignRole(user, { telegramUserId: setRole[2] }, role);
+        const card = await this.staffUserCard(user, updated.telegramUserId);
+        card.text = `Готово. Теперь **${roleLabel(updated.role)}**.\n\n${card.text}`;
+        return card;
+      } catch (error) {
+        return this.decorate(user, {
+          text: error instanceof Error ? error.message : "Не назначил.",
+          inline: staffKeyboard(),
+        });
+      }
+    }
+    const revokeUser = /^staff:rev:(.+)$/.exec(data);
+    if (revokeUser?.[1]) {
+      try {
+        await this.staff.revoke(user, { telegramUserId: revokeUser[1] });
+        const card = await this.staffUserCard(user, revokeUser[1]);
+        card.text = `Доступ забрал.\n\n${card.text}`;
+        return card;
+      } catch (error) {
+        return this.decorate(user, {
+          text: error instanceof Error ? error.message : "Не забрал.",
+          inline: staffKeyboard(),
+        });
+      }
+    }
+    if (data === "staff:assign:admin") {
+      await this.conversations.setPendingUi(user.telegramUserId, { kind: "assign_role", role: "admin" });
+      return this.decorate(user, {
+        text: "Пришли @username или telegram id — сделаю **админом**. Удобнее открыть человека в «Кто писал боту».",
+        inline: staffKeyboard(),
+      });
+    }
+    if (data === "staff:assign:superadmin") {
+      await this.conversations.setPendingUi(user.telegramUserId, { kind: "assign_role", role: "superadmin" });
+      return this.decorate(user, {
+        text: "Пришли @username или telegram id — сделаю **суперадмином**.",
+        inline: staffKeyboard(),
+      });
+    }
+    if (data === "staff:revoke") {
+      await this.conversations.setPendingUi(user.telegramUserId, { kind: "revoke_role" });
+      return this.decorate(user, {
+        text: "Пришли @username или telegram id — заберу доступ. Или открой человека в «Кто в штате».",
+        inline: staffKeyboard(),
+      });
+    }
+    return this.staffMenu(user);
+  }
+
+  private async staffListScreen(user: StaffUser, page: number): Promise<BotReply> {
+    const people = await this.staff.listStaff(user);
+    if (people.length === 0) {
+      return this.decorate(user, {
+        text: "В штате пока никого нет.",
+        inline: staffKeyboard(),
+      });
+    }
+    const slice = people.slice(page * PAGE, page * PAGE + PAGE);
+    const items = slice.map((person) => ({
+      text: staffButtonLabel(person),
+      data: `staff:u:${person.telegramUserId}`,
+    }));
+    const nav: Array<{ text: string; data: string }> = [];
+    if (page > 0) {
+      nav.push({ text: "←", data: `staff:list:${page - 1}` });
+    }
+    if ((page + 1) * PAGE < people.length) {
+      nav.push({ text: "→", data: `staff:list:${page + 1}` });
+    }
+    nav.push({ text: "Меню штата", data: "staff:menu" });
+    return this.decorate(user, {
+      text: `**Кто в штате** (${people.length})\n\nЖми на человека — роли и доступ.`,
+      inline: pageButtons(items, nav),
+    });
+  }
+
+  private async staffVisitorsScreen(user: StaffUser, page: number): Promise<BotReply> {
+    const people = await this.staff.listVisitors(user);
+    if (people.length === 0) {
+      return this.decorate(user, {
+        text: "Пока никто без роли не писал боту. Как только человек напишет — он появится здесь.",
+        inline: staffKeyboard(),
+      });
+    }
+    const slice = people.slice(page * PAGE, page * PAGE + PAGE);
+    const items = slice.map((person) => ({
+      text: staffButtonLabel(person),
+      data: `staff:u:${person.telegramUserId}`,
+    }));
+    const nav: Array<{ text: string; data: string }> = [];
+    if (page > 0) {
+      nav.push({ text: "←", data: `staff:visitors:${page - 1}` });
+    }
+    if ((page + 1) * PAGE < people.length) {
+      nav.push({ text: "→", data: `staff:visitors:${page + 1}` });
+    }
+    nav.push({ text: "Меню штата", data: "staff:menu" });
+    return this.decorate(user, {
+      text: `**Кто писал боту** (${people.length})\n\nБез роли штаба. Открой — назначь админом или суперадмином.`,
+      inline: pageButtons(items, nav),
+    });
+  }
+
+  private async staffUserCard(user: StaffUser, telegramUserId: string): Promise<BotReply> {
+    const person = await this.staff.getUserForStaff(user, telegramUserId);
+    if (!person) {
+      return this.decorate(user, {
+        text: "Такого человека не нашёл. Пусть сначала напишет боту.",
+        inline: staffKeyboard(),
+      });
+    }
+    const name = person.isOwner
+      ? MASTER_KOLOTUSHIN
+      : person.displayName ?? (person.username ? `@${person.username}` : "без имени");
+    const nick = person.username ? `@${person.username}` : "нет username";
+    const lines = [
+      `**${name}**`,
+      `Username: ${nick}`,
+      `Telegram id: \`${person.telegramUserId}\``,
+      `Роль: **${roleLabel(person.role)}**`,
+      `Статус: ${person.status === "active" ? "активен" : person.status}`,
+    ];
+    if (person.isOwner) {
+      lines.push("", "Роль Мастера так не меняют.");
+    }
+    return this.decorate(user, {
+      text: lines.join("\n"),
+      inline: staffUserCardKeyboard({
+        telegramUserId: person.telegramUserId,
+        role: person.role,
+        isOwner: person.isOwner,
+        canRevoke: person.telegramUserId !== user.telegramUserId,
+      }),
+    });
   }
 
   private async notesList(user: StaffUser, page = 0): Promise<BotReply> {
@@ -1143,6 +1301,14 @@ function roleLabel(role: StaffRole | null): string {
     return "оператор";
   }
   return "без роли";
+}
+
+function staffButtonLabel(person: StaffUser): string {
+  const name = person.isOwner
+    ? MASTER_KOLOTUSHIN
+    : person.displayName ?? (person.username ? `@${person.username}` : person.telegramUserId);
+  const role = person.role ? roleLabel(person.role) : "гость";
+  return `${name} · ${role}`;
 }
 
 function fieldOf(doc: KnowledgeDoc, key: string): string | undefined {

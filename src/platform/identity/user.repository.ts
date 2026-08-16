@@ -28,6 +28,19 @@ export class UserRepository {
     return rows.map((row) => this.hydrate(row));
   }
 
+  /** Кто писал боту без роли штаба (и бывшие со снятым доступом). */
+  async listVisitors(limit = 40): Promise<StaffUser[]> {
+    const rows = await this.col()
+      .find({
+        isOwner: { $ne: true },
+        $or: [{ role: null }, { role: { $exists: false } }, { status: "disabled" }],
+      })
+      .sort({ updatedAt: -1 })
+      .limit(Math.min(Math.max(limit, 1), 80))
+      .toArray();
+    return rows.map((row) => this.hydrate(row));
+  }
+
   async findOwner(): Promise<StaffUser | null> {
     const raw = await this.col().findOne({ isOwner: true });
     if (raw) {
@@ -54,8 +67,11 @@ export class UserRepository {
       status: input.status,
       updatedAt: now,
     };
-    if (input.username !== null || username) {
+    // username / displayName только в $set — иначе конфликт с $setOnInsert на том же path.
+    if (username !== null) {
       $set.username = username;
+    } else if (input.username === null) {
+      $set.username = null;
     }
     if (input.isOwner === true) {
       $set.isOwner = true;
@@ -84,8 +100,6 @@ export class UserRepository {
           isOwner: false,
           actorKind: "staff",
           honorific: null,
-          username: username,
-          displayName: input.displayName,
         },
       },
       { upsert: true },

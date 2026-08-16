@@ -146,6 +146,20 @@ export class StaffService {
     return this.users.listStaff();
   }
 
+  async listVisitors(actor: StaffUser): Promise<StaffUser[]> {
+    if (!actor.role || !hasAtLeast(actor.role, "superadmin")) {
+      throw new AccessDeniedError();
+    }
+    return this.users.listVisitors();
+  }
+
+  async getUserForStaff(actor: StaffUser, telegramUserId: string): Promise<StaffUser | null> {
+    if (!actor.role || !hasAtLeast(actor.role, "superadmin")) {
+      throw new AccessDeniedError();
+    }
+    return this.users.findByTelegramId(telegramUserId);
+  }
+
   private async resolveTargetId(target: { telegramUserId?: string; username?: string }): Promise<string> {
     if (target.telegramUserId) {
       return target.telegramUserId;
