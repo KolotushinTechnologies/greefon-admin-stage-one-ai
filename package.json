@@ -1,0 +1,43 @@
+{
+  "name": "greefon-os",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "tsx watch src/app/api.ts",
+    "dev:worker": "tsx watch src/app/worker.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/app/api.js",
+    "start:worker": "node dist/app/worker.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "crm:import": "tsx src/scripts/crm-import.ts",
+    "crm:import:fast": "tsx src/scripts/crm-import.ts --skip-visits",
+    "crm:import:visits": "tsx src/scripts/crm-import.ts --visits-only",
+    "web": "npm --prefix web run dev",
+    "web:build": "npm --prefix web run build"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.68.0",
+    "@fastify/cors": "^11.1.0",
+    "@xenova/transformers": "^2.17.2",
+    "amqplib": "^0.10.9",
+    "awilix": "^12.0.5",
+    "bullmq": "^5.63.0",
+    "dotenv": "^17.2.2",
+    "fastify": "^5.6.1",
+    "grammy": "^1.38.3",
+    "ioredis": "^5.8.1",
+    "mongodb": "^6.20.0",
+    "pino": "^9.12.0",
+    "zod": "^4.1.11"
+  },
+  "devDependencies": {
+    "@types/amqplib": "^0.10.7",
+    "@types/node": "^24.6.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.2"
+  }
+}

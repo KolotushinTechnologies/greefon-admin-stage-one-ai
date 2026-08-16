@@ -1,0 +1,75 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(7, 8, 11, 0.45);
+  backdrop-filter: blur(10px);
+  animation: fade 180ms ease-out;
+}
+
+.panel {
+  width: min(480px, 100%);
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: var(--glass);
+  backdrop-filter: blur(24px);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  animation: rise 180ms ease-out;
+}
+
+.wide {
+  width: min(720px, 100%);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.head h2 {
+  margin: 0;
+  font-size: 17px;
+  letter-spacing: -0.04em;
+}
+
+.close {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: transparent;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.body {
+  padding: 18px;
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}

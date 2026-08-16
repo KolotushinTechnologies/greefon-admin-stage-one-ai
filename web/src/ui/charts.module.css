@@ -1,0 +1,113 @@
+.bars,
+.probs {
+  display: grid;
+  gap: 12px;
+}
+
+.barRow,
+.prob {
+  display: grid;
+  gap: 6px;
+}
+
+.barMeta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.barMeta b {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+}
+
+.track {
+  height: 10px;
+  border-radius: 999px;
+  background: var(--bg-2);
+  overflow: hidden;
+}
+
+.fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 420ms ease-out;
+}
+
+.accent {
+  background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 40%, var(--gold)));
+}
+
+.gold {
+  background: linear-gradient(90deg, var(--gold), #dfc39a);
+}
+
+.ok {
+  background: var(--ok);
+}
+
+.danger {
+  background: var(--danger);
+}
+
+.donutWrap {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 16px;
+  align-items: center;
+}
+
+@media (max-width: 720px) {
+  .donutWrap {
+    grid-template-columns: 1fr;
+  }
+}
+
+.donut {
+  width: 140px;
+  height: 140px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+}
+
+.donutHole {
+  width: 78px;
+  height: 78px;
+  border-radius: 50%;
+  background: var(--panel-solid);
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.04em;
+}
+
+.legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.legend li {
+  display: grid;
+  grid-template-columns: 10px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+}
+
+.legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.prob p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+}

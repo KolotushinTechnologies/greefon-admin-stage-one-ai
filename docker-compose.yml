@@ -1,0 +1,48 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: greefon
+      RABBITMQ_DEFAULT_PASS: greefon
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+
+  api:
+    build: .
+    command: ["node", "dist/app/api.js"]
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379
+      RABBITMQ_URL: amqp://greefon:greefon@rabbitmq:5672
+    ports:
+      - "${PORT:-3890}:3890"
+    depends_on:
+      - redis
+      - rabbitmq
+
+  worker:
+    build: .
+    command: ["node", "dist/app/worker.js"]
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379
+      RABBITMQ_URL: amqp://greefon:greefon@rabbitmq:5672
+    depends_on:
+      - redis
+      - rabbitmq
+
+volumes:
+  redis_data:
+  rabbitmq_data:

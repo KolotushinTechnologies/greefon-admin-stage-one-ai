@@ -1,0 +1,126 @@
+@font-face {
+  font-family: "Geist Sans";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("https://cdn.jsdelivr.net/fontsource/fonts/geist-sans@latest/latin-400-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url("https://cdn.jsdelivr.net/fontsource/fonts/geist-mono@latest/latin-400-normal.woff2") format("woff2");
+}
+
+:root {
+  --bg: #efece4;
+  --bg-2: #e4dfd4;
+  --panel: rgba(255, 252, 247, 0.78);
+  --panel-solid: #fffcf7;
+  --panel-2: #f7f3ea;
+  --ink: #16181e;
+  --ink-soft: #5c5f6a;
+  --line: rgba(26, 28, 34, 0.08);
+  --accent: #1e3a5f;
+  --accent-2: #c4a574;
+  --accent-soft: rgba(30, 58, 95, 0.1);
+  --gold: #c4a574;
+  --danger: #8f3a32;
+  --ok: #2f6b4f;
+  --glass: rgba(255, 252, 247, 0.62);
+  --shadow: 0 24px 60px rgba(26, 28, 34, 0.08);
+  --radius: 24px;
+  --radius-sm: 14px;
+  --rail: 76px;
+  --inspector: 360px;
+  --griffin: 340px;
+  --font: "Geist Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "Geist Mono", ui-monospace, monospace;
+  --fs-13: 13px;
+  --fs-15: 15px;
+  --fs-17: 17px;
+  --fs-22: 22px;
+  --fs-34: 34px;
+  --glow: radial-gradient(ellipse at 12% -10%, rgba(196, 165, 116, 0.28), transparent 42%),
+    radial-gradient(ellipse at 90% 110%, rgba(30, 58, 95, 0.16), transparent 46%);
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --bg: #07080b;
+  --bg-2: #101218;
+  --panel: rgba(22, 25, 33, 0.62);
+  --panel-solid: #161922;
+  --panel-2: #12151c;
+  --ink: #f3efe6;
+  --ink-soft: #9aa0ad;
+  --line: rgba(243, 239, 230, 0.1);
+  --accent: #8ec0ea;
+  --accent-2: #c4a574;
+  --accent-soft: rgba(142, 192, 234, 0.14);
+  --gold: #c4a574;
+  --danger: #e08b84;
+  --ok: #7dba9a;
+  --glass: rgba(12, 14, 20, 0.55);
+  --shadow: 0 24px 70px rgba(0, 0, 0, 0.45);
+  --glow: radial-gradient(ellipse at 18% -8%, rgba(196, 165, 116, 0.22), transparent 46%),
+    radial-gradient(ellipse at 92% 108%, rgba(30, 58, 95, 0.5), transparent 48%);
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: var(--fs-15);
+  line-height: 1.45;
+  letter-spacing: -0.02em;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: var(--glow);
+  pointer-events: none;
+  z-index: 0;
+}
+
+#root {
+  position: relative;
+  z-index: 1;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+button {
+  cursor: pointer;
+}
+
+::selection {
+  background: var(--accent-soft);
+}

@@ -1,0 +1,77 @@
+.root {
+  position: relative;
+  display: inline-block;
+  min-width: 160px;
+}
+
+.trigger {
+  width: 100%;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.trigger:hover {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  min-width: max(100%, 220px);
+  max-height: 280px;
+  overflow: auto;
+  z-index: 40;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--glass);
+  backdrop-filter: blur(22px);
+  box-shadow: var(--shadow);
+  padding: 6px;
+  animation: rise 180ms ease-out;
+}
+
+.option {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  border-radius: 12px;
+  padding: 10px 12px;
+  color: var(--ink);
+}
+
+.option small {
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+.option:hover,
+.on {
+  background: var(--accent-soft);
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
