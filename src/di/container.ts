@@ -43,6 +43,8 @@ import { NotesRepository } from "../platform/notes/notes.repository.js";
 import { NotesService } from "../platform/notes/notes.service.js";
 import { CopilotService } from "../platform/copilot/copilot.service.js";
 import { AiActionLogRepository } from "../platform/copilot/ai-action-log.repository.js";
+import { ContextHintsService } from "../platform/copilot/context-hints.service.js";
+import { ProblemRadarService } from "../platform/copilot/problem-radar.service.js";
 
 export type AppCradle = {
   env: AppEnv;
@@ -84,6 +86,8 @@ export type AppCradle = {
   escalationDocs: EscalationRepository;
   escalationService: EscalationService;
   copilot: CopilotService;
+  contextHints: ContextHintsService;
+  problemRadar: ProblemRadarService;
   aiActions: AiActionLogRepository;
   usage: UsageMeter;
   digest: DigestService;
@@ -133,6 +137,8 @@ export function buildContainer(env: AppEnv): AwilixContainer<AppCradle> {
     telegramChannel: asClass(TelegramAdminChannel).singleton(),
     escalationDocs: asClass(EscalationRepository).singleton(),
     aiActions: asClass(AiActionLogRepository).singleton(),
+    contextHints: asClass(ContextHintsService).singleton(),
+    problemRadar: asClass(ProblemRadarService).singleton(),
     copilot: asClass(CopilotService).singleton(),
     escalationService: asClass(EscalationService).singleton(),
     usage: asClass(UsageMeter).singleton(),

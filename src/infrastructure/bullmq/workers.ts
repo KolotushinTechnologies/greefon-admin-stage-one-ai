@@ -19,6 +19,7 @@ import type { SendService } from "../../platform/messaging/send.service.js";
 import type { KnowledgeService } from "../../platform/knowledge/knowledge.service.js";
 import type { CrmSyncService } from "../../platform/org/crm-sync.service.js";
 import type { DigestService } from "../../platform/analytics/digest.service.js";
+import type { ProblemRadarService } from "../../platform/copilot/problem-radar.service.js";
 
 export function startWorkers(input: {
   connection: Redis;
@@ -29,6 +30,7 @@ export function startWorkers(input: {
   knowledge: KnowledgeService;
   crmSync: CrmSyncService;
   digest: DigestService;
+  problemRadar: ProblemRadarService;
 }): Worker[] {
   const sendWorker = new Worker<TelegramSendJob>(
     QUEUE_TELEGRAM_SEND,
@@ -107,6 +109,10 @@ export function startWorkers(input: {
     async (job) => {
       if (job.data.reason === "morning") {
         await input.digest.sendMorningTasks();
+        return;
+      }
+      if (job.data.reason === "radar") {
+        await input.problemRadar.sendRadar();
         return;
       }
       await input.digest.sendEvening();

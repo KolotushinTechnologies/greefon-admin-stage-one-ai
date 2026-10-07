@@ -42,6 +42,22 @@ export class EscalationRepository {
       .toArray();
   }
 
+  async listByParent(parentTelegramId: string, limit = 12): Promise<Escalation[]> {
+    return this.col()
+      .find({ parentTelegramId })
+      .sort({ createdAt: -1 })
+      .limit(Math.min(Math.max(limit, 1), 30))
+      .toArray();
+  }
+
+  async listSince(from: Date, limit = 80): Promise<Escalation[]> {
+    return this.col()
+      .find({ createdAt: { $gte: from } })
+      .sort({ createdAt: -1 })
+      .limit(Math.min(Math.max(limit, 1), 120))
+      .toArray();
+  }
+
   async countSince(from: Date, status?: EscalationStatus): Promise<number> {
     const query: Record<string, unknown> = { createdAt: { $gte: from } };
     if (status) {

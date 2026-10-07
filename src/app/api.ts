@@ -28,7 +28,7 @@ function appLogError(error: unknown): void {
 }
 
 if (env.NODE_ENV === "development") {
-  const { queues, redis, messenger, outbound, send, knowledge, crmSync, digest } = container.cradle;
+  const { queues, redis, messenger, outbound, send, knowledge, crmSync, digest, problemRadar } = container.cradle;
   await queues.digest.add(
     "evening",
     { reason: "evening" },
@@ -39,6 +39,11 @@ if (env.NODE_ENV === "development") {
     { reason: "morning" },
     { repeat: { pattern: "0 9 * * *", tz: "Europe/Moscow" }, jobId: "digest-morning" },
   );
+  await queues.digest.add(
+    "radar",
+    { reason: "radar" },
+    { repeat: { pattern: "0 13 * * *", tz: "Europe/Moscow" }, jobId: "digest-radar" },
+  );
   startWorkers({
     connection: redis.client.duplicate(),
     queues,
@@ -48,6 +53,7 @@ if (env.NODE_ENV === "development") {
     knowledge,
     crmSync,
     digest,
+    problemRadar,
   });
 }
 

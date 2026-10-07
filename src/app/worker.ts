@@ -7,7 +7,7 @@ const env = loadEnv();
 const container = buildContainer(env);
 await connectInfrastructure(container);
 
-const { queues, redis, messenger, outbound, send, knowledge, crmSync, digest, events } = container.cradle;
+const { queues, redis, messenger, outbound, send, knowledge, crmSync, digest, problemRadar, events } = container.cradle;
 
 await queues.digest.add(
   "evening",
@@ -19,6 +19,11 @@ await queues.digest.add(
   { reason: "morning" },
   { repeat: { pattern: "0 9 * * *", tz: "Europe/Moscow" }, jobId: "digest-morning" },
 );
+await queues.digest.add(
+  "radar",
+  { reason: "radar" },
+  { repeat: { pattern: "0 13 * * *", tz: "Europe/Moscow" }, jobId: "digest-radar" },
+);
 
 const workers = startWorkers({
   connection: redis.client.duplicate(),
@@ -29,6 +34,7 @@ const workers = startWorkers({
   knowledge,
   crmSync,
   digest,
+  problemRadar,
 });
 
 const shutdown = async () => {

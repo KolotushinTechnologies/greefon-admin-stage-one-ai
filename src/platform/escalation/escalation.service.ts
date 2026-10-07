@@ -6,6 +6,7 @@ import type { KnowledgeService } from "../knowledge/knowledge.service.js";
 import type { UsageMeter } from "../analytics/usage.meter.js";
 import type { CopilotService } from "../copilot/copilot.service.js";
 import type { AiActionLogRepository } from "../copilot/ai-action-log.repository.js";
+import type { ContextHintsService } from "../copilot/context-hints.service.js";
 import type { EscalationRepository } from "./escalation.repository.js";
 import type { Escalation } from "./types.js";
 import { InlineKeyboard } from "grammy";
@@ -19,6 +20,7 @@ export class EscalationService {
     private readonly usage: UsageMeter,
     private readonly copilot: CopilotService,
     private readonly aiActions: AiActionLogRepository,
+    private readonly contextHints: ContextHintsService,
   ) {}
 
   async open(input: {
@@ -74,6 +76,7 @@ export class EscalationService {
       question: input.question,
       brief,
     });
+    const hintBlock = this.contextHints.formatBlock(await this.contextHints.forEscalation(doc));
     const keyboard = new InlineKeyboard()
       .text("Отправить", `e:s:${doc._id}`)
       .text("Изменить", `e:c:${doc._id}`)
@@ -81,7 +84,7 @@ export class EscalationService {
       .text("Позвонить", `e:p:${doc._id}`);
     const notices: Array<{ chatId: string; messageId: number }> = [];
     for (const person of desk) {
-      const sent = await this.messenger.sendText(person.telegramUserId, text, keyboard);
+      const sent = await this.messenger.sendText(person.telegramUserId, `${text}${hintBlock}`, keyboard);
       if (sent.ok && sent.telegramMessageId !== null) {
         notices.push({ chatId: person.telegramUserId, messageId: sent.telegramMessageId });
       }
@@ -131,7 +134,8 @@ export class EscalationService {
     const draftHint = doc.draftReply
       ? `\n\nЧерновик AI (можно править):\n${doc.draftReply}`
       : "";
-    return `Пиши ответ — уйдёт в чат, где спрашивали, reply на сообщение родителя.\n\nСпрашивали: «${doc.question}»${draftHint}`;
+    const hints = this.contextHints.formatBlock(await this.contextHints.forEscalation(doc));
+    return `Пиши ответ — уйдёт в чат, где спрашивали, reply на сообщение родителя.\n\nСпрашивали: «${doc.question}»${draftHint}${hints}`;
   }
 
   /** Отправить черновик AI без ручного набора — человек подтвердил кнопкой. */
@@ -203,6 +207,7 @@ export class EscalationService {
     }
     const who = doc.parentDisplayName ?? (doc.parentUsername ? `@${doc.parentUsername}` : "родитель");
     const idleH = Math.max(0, Math.round((Date.now() - new Date(doc.updatedAt).getTime()) / 3_600_000));
+    const hints = this.contextHints.formatBlock(await this.contextHints.forEscalation(doc));
     const text = [
       `**Дело** · ${doc.status === "claimed" ? "в работе" : "открыто"}`,
       who + (doc.parentUsername ? ` (@${doc.parentUsername})` : ""),
@@ -213,6 +218,7 @@ export class EscalationService {
       `«${doc.question}»`,
       "",
       doc.draftReply ? `Черновик:\n${doc.draftReply}` : "Черновика нет — нажми «Ответ», соберу.",
+      hints,
     ]
       .filter((line): line is string => line !== null)
       .join("\n");
