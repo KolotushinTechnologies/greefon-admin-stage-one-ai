@@ -278,6 +278,18 @@ export class AdminPanel {
       await this.conversations.setPendingUi(user.telegramUserId, { kind: "escalate_answer", escalationId: take[1] });
       return this.decorate(user, { text: prompt });
     }
+    const sendDraft = /^e:s:(.+)$/.exec(data);
+    if (sendDraft?.[1]) {
+      return this.decorate(user, {
+        text: await this.escalationService.sendDraft(user, sendDraft[1]),
+      });
+    }
+    const callHint = /^e:p:(.+)$/.exec(data);
+    if (callHint?.[1]) {
+      return this.decorate(user, {
+        text: await this.escalationService.callHint(user, callHint[1]),
+      });
+    }
     if (data === "staff:menu" || data.startsWith("staff:")) {
       const reply = await this.staffRoute(user, data);
       reply.edit = true;
@@ -1246,7 +1258,7 @@ function minRoleForCallback(data: string): StaffRole {
   if (data.startsWith("staff:") || data === "notes" || data.startsWith("notes:")) {
     return "superadmin";
   }
-  if (data.startsWith("e:c:")) {
+  if (data.startsWith("e:c:") || data.startsWith("e:s:") || data.startsWith("e:p:")) {
     return "admin";
   }
   if (

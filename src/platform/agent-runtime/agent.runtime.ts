@@ -1,15 +1,15 @@
-import type { AnthropicGateway, ClaudeMessage } from "../../infrastructure/llm/anthropic.gateway.js";
 import type { ConversationStore } from "../conversation/conversation.store.js";
 import { moscowNowContext } from "../shared/clock.js";
 import { AccessDeniedError, DomainError } from "../shared/errors.js";
 import type { StaffRole } from "../identity/types.js";
+import type { LlmChatMessage, LlmGateway } from "../../infrastructure/llm/llm.types.js";
 import type { AgentReply, AgentToolTrace, ConversationLane, RegisteredTool, ToolExecutionContext, ToolRole } from "./types.js";
 
 const MAX_ROUNDS = 8;
 
 export class AgentRuntime {
   constructor(
-    private readonly llm: AnthropicGateway,
+    private readonly llm: LlmGateway,
     private readonly conversations: ConversationStore,
   ) {}
 
@@ -42,7 +42,7 @@ export class AgentRuntime {
         : "Это начало диалога в текущем чате — короткое приветствие уместно только если человек сам поздоровался. Не отсылай к разговорам в других чатах.",
       "Ориентируйся на час и день недели естественно (утро/вечер), без лекций про календарь.",
     ].join("\n\n");
-    const messages: ClaudeMessage[] = [];
+    const messages: LlmChatMessage[] = [];
     if (input.actorContext) {
       messages.push({ role: "user", content: input.actorContext });
       messages.push({ role: "assistant", content: "Ок." });
@@ -75,15 +75,15 @@ export class AgentRuntime {
       }
       messages.push(assistantMessage);
 
-      const toolResults: Extract<ClaudeMessage["content"], unknown[]> = [];
       for (const call of turn.calls) {
-        toolResults.push({
-          type: "tool_result",
-          tool_use_id: call.id,
-          content: await this.runTool(input.tools, call.name, call.input, input.ctx, traces),
+        const content = await this.runTool(input.tools, call.name, call.input, input.ctx, traces);
+        messages.push({
+          role: "tool",
+          toolCallId: call.id,
+          name: call.name,
+          content,
         });
       }
-      messages.push({ role: "user", content: toolResults });
     }
 
     const text = lastAssistant.trim().length > 0 ? lastAssistant.trim() : "Не закончил мысль. Напиши ещё раз короче.";
@@ -119,7 +119,7 @@ export class AgentRuntime {
       "Ориентируйся на час и день недели естественно, без лекций про календарь.",
     ].join("\n\n");
 
-    const messages: ClaudeMessage[] = [];
+    const messages: LlmChatMessage[] = [];
     if (input.actorContext) {
       messages.push({ role: "user", content: input.actorContext });
       messages.push({ role: "assistant", content: "Ок." });
@@ -152,15 +152,15 @@ export class AgentRuntime {
       }
       messages.push(assistantMessage);
 
-      const toolResults: Extract<ClaudeMessage["content"], unknown[]> = [];
       for (const call of turn.calls) {
-        toolResults.push({
-          type: "tool_result",
-          tool_use_id: call.id,
-          content: await this.runTool(input.tools, call.name, call.input, input.ctx, traces),
+        const content = await this.runTool(input.tools, call.name, call.input, input.ctx, traces);
+        messages.push({
+          role: "tool",
+          toolCallId: call.id,
+          name: call.name,
+          content,
         });
       }
-      messages.push({ role: "user", content: toolResults });
     }
 
     const text = lastAssistant.trim().length > 0 ? lastAssistant.trim() : "Не закончил мысль. Напиши ещё раз короче.";

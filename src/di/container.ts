@@ -5,7 +5,8 @@ import { RedisConnection } from "../infrastructure/redis/redis.client.js";
 import { JobQueues } from "../infrastructure/bullmq/queues.js";
 import { RabbitEventBus } from "../infrastructure/rabbitmq/event-bus.js";
 import { GreefonVedomostiClient } from "../infrastructure/crm-vedomosti/vedomosti.client.js";
-import { AnthropicGateway } from "../infrastructure/llm/anthropic.gateway.js";
+import { GigaChatGateway } from "../infrastructure/llm/gigachat.gateway.js";
+import type { LlmGateway } from "../infrastructure/llm/llm.types.js";
 import { XenovaEmbeddingService } from "../infrastructure/embeddings/xenova.embeddings.js";
 import { TelegramMessenger } from "../infrastructure/telegram/telegram.messenger.js";
 import { UserRepository } from "../platform/identity/user.repository.js";
@@ -40,6 +41,8 @@ import { GigaChatSttService } from "../infrastructure/stt/gigachat.stt.js";
 import { KnowledgeGroundingService } from "../platform/knowledge/knowledge-grounding.service.js";
 import { NotesRepository } from "../platform/notes/notes.repository.js";
 import { NotesService } from "../platform/notes/notes.service.js";
+import { CopilotService } from "../platform/copilot/copilot.service.js";
+import { AiActionLogRepository } from "../platform/copilot/ai-action-log.repository.js";
 
 export type AppCradle = {
   env: AppEnv;
@@ -48,7 +51,7 @@ export type AppCradle = {
   queues: JobQueues;
   events: RabbitEventBus;
   crm: GreefonVedomostiClient;
-  llm: AnthropicGateway;
+  llm: LlmGateway;
   embeddings: XenovaEmbeddingService;
   messenger: TelegramMessenger;
   stt: GigaChatSttService;
@@ -80,6 +83,8 @@ export type AppCradle = {
   telegramChannel: TelegramAdminChannel;
   escalationDocs: EscalationRepository;
   escalationService: EscalationService;
+  copilot: CopilotService;
+  aiActions: AiActionLogRepository;
   usage: UsageMeter;
   digest: DigestService;
   schoolEventDocs: SchoolEventRepository;
@@ -96,7 +101,7 @@ export function buildContainer(env: AppEnv): AwilixContainer<AppCradle> {
     queues: asFunction((redis: RedisConnection) => new JobQueues(redis.client)).singleton(),
     events: asClass(RabbitEventBus).singleton(),
     crm: asClass(GreefonVedomostiClient).singleton(),
-    llm: asClass(AnthropicGateway).singleton(),
+    llm: asClass(GigaChatGateway).singleton(),
     embeddings: asClass(XenovaEmbeddingService).singleton(),
     messenger: asClass(TelegramMessenger).singleton(),
     stt: asClass(GigaChatSttService).singleton(),
@@ -120,13 +125,15 @@ export function buildContainer(env: AppEnv): AwilixContainer<AppCradle> {
     conversations: asClass(ConversationStore).singleton(),
     outbound: asClass(OutboundRepository).singleton(),
     send: asClass(SendService).singleton(),
-    runtime: asFunction((llm: AnthropicGateway, conversations: ConversationStore) => new AgentRuntime(llm, conversations)).singleton(),
+    runtime: asFunction((llm: LlmGateway, conversations: ConversationStore) => new AgentRuntime(llm, conversations)).singleton(),
     adminAgent: asClass(AdminAgent).singleton(),
     parentAgent: asClass(ParentAgent).singleton(),
     parentHints: asClass(ParentHints).singleton(),
     panel: asClass(AdminPanel).singleton(),
     telegramChannel: asClass(TelegramAdminChannel).singleton(),
     escalationDocs: asClass(EscalationRepository).singleton(),
+    aiActions: asClass(AiActionLogRepository).singleton(),
+    copilot: asClass(CopilotService).singleton(),
     escalationService: asClass(EscalationService).singleton(),
     usage: asClass(UsageMeter).singleton(),
     digest: asClass(DigestService).singleton(),

@@ -4,6 +4,8 @@ import type { StaffService } from "../identity/staff.service.js";
 import type { TelegramMessenger } from "../../infrastructure/telegram/telegram.messenger.js";
 import type { KnowledgeService } from "../knowledge/knowledge.service.js";
 import type { UsageMeter } from "../analytics/usage.meter.js";
+import type { CopilotService } from "../copilot/copilot.service.js";
+import type { AiActionLogRepository } from "../copilot/ai-action-log.repository.js";
 import type { EscalationRepository } from "./escalation.repository.js";
 import type { Escalation } from "./types.js";
 import { InlineKeyboard } from "grammy";
@@ -15,6 +17,8 @@ export class EscalationService {
     private readonly messenger: TelegramMessenger,
     private readonly knowledge: KnowledgeService,
     private readonly usage: UsageMeter,
+    private readonly copilot: CopilotService,
+    private readonly aiActions: AiActionLogRepository,
   ) {}
 
   async open(input: {
@@ -26,6 +30,12 @@ export class EscalationService {
     question: string;
     reason: string;
   }): Promise<Escalation> {
+    const brief = await this.copilot.analyzeInbound({
+      question: input.question,
+      reason: input.reason,
+      parentDisplayName: input.parentDisplayName,
+    });
+
     const doc = await this.escalationDocs.insert({
       status: "open",
       parentTelegramId: input.parentTelegramId,
@@ -37,20 +47,37 @@ export class EscalationService {
       reason: input.reason,
       claimedByTelegramId: null,
       answer: null,
+      draftReply: brief.draftReply,
+      intent: brief.intent,
+      heat: brief.heat,
       notices: [],
     });
     await this.usage.bump("escalation");
+    await this.aiActions.record({
+      kind: "inbound_analyzed",
+      escalationId: doc._id,
+      parentTelegramId: input.parentTelegramId,
+      payload: {
+        intent: brief.intent,
+        heat: brief.heat,
+        stageLabel: brief.stageLabel,
+        draftLen: brief.draftReply.length,
+      },
+    });
+
     const desk = await this.staff.listDesk();
     const who = input.parentDisplayName ?? (input.parentUsername ? `@${input.parentUsername}` : "родитель");
-    const text = [
-      "**Родитель ждёт ответ**",
-      who + (input.parentUsername ? ` (@${input.parentUsername})` : ""),
-      "",
-      `«${input.question}»`,
-      "",
-      input.reason,
-    ].join("\n");
-    const keyboard = new InlineKeyboard().text("Возьму", `e:c:${doc._id}`);
+    const whoLine = who + (input.parentUsername ? ` (@${input.parentUsername})` : "");
+    const text = this.copilot.formatAdminCard({
+      who: whoLine,
+      question: input.question,
+      brief,
+    });
+    const keyboard = new InlineKeyboard()
+      .text("Отправить", `e:s:${doc._id}`)
+      .text("Изменить", `e:c:${doc._id}`)
+      .row()
+      .text("Позвонить", `e:p:${doc._id}`);
     const notices: Array<{ chatId: string; messageId: number }> = [];
     for (const person of desk) {
       const sent = await this.messenger.sendText(person.telegramUserId, text, keyboard);
@@ -93,7 +120,69 @@ export class EscalationService {
         );
       }
     }
-    return `Пиши ответ — уйдёт в чат, где спрашивали, reply на сообщение родителя.\n\nСпрашивали: «${doc.question}»`;
+    await this.aiActions.record({
+      kind: "escalation_claimed",
+      actor: "staff",
+      actorTelegramId: actor.telegramUserId,
+      escalationId: id,
+      parentTelegramId: doc.parentTelegramId,
+    });
+    const draftHint = doc.draftReply
+      ? `\n\nЧерновик AI (можно править):\n${doc.draftReply}`
+      : "";
+    return `Пиши ответ — уйдёт в чат, где спрашивали, reply на сообщение родителя.\n\nСпрашивали: «${doc.question}»${draftHint}`;
+  }
+
+  /** Отправить черновик AI без ручного набора — человек подтвердил кнопкой. */
+  async sendDraft(actor: StaffUser, id: string): Promise<string> {
+    if (!actor.role || !hasAtLeast(actor.role, "admin")) {
+      throw new AccessDeniedError();
+    }
+    const doc = await this.escalationDocs.findById(id);
+    if (!doc) {
+      throw new NotFoundError("Заявку не нашёл.");
+    }
+    const draft = (doc.draftReply ?? "").trim();
+    if (draft.length === 0) {
+      return "Черновика нет — жми «Изменить» и напиши ответ сам.";
+    }
+    await this.aiActions.record({
+      kind: "draft_send_confirmed",
+      actor: "staff",
+      actorTelegramId: actor.telegramUserId,
+      escalationId: id,
+      parentTelegramId: doc.parentTelegramId,
+      payload: { draftLen: draft.length },
+    });
+    return this.resolve(actor, id, draft);
+  }
+
+  async callHint(actor: StaffUser, id: string): Promise<string> {
+    if (!actor.role || !hasAtLeast(actor.role, "admin")) {
+      throw new AccessDeniedError();
+    }
+    const doc = await this.escalationDocs.findById(id);
+    if (!doc) {
+      throw new NotFoundError("Заявку не нашёл.");
+    }
+    const who = doc.parentDisplayName ?? (doc.parentUsername ? `@${doc.parentUsername}` : "родитель");
+    const nick = doc.parentUsername ? `@${doc.parentUsername}` : "username нет";
+    await this.aiActions.record({
+      kind: "call_hint_opened",
+      actor: "staff",
+      actorTelegramId: actor.telegramUserId,
+      escalationId: id,
+      parentTelegramId: doc.parentTelegramId,
+    });
+    return [
+      `Позвонить: **${who}**`,
+      `Telegram: ${nick}`,
+      `id: \`${doc.parentTelegramId}\``,
+      "",
+      "Номера телефона в боте может не быть — открой CRM или напиши в личку.",
+      "",
+      `Спрашивали: «${doc.question}»`,
+    ].join("\n");
   }
 
   async resolve(actor: StaffUser, id: string, answer: string): Promise<string> {
@@ -131,6 +220,21 @@ export class EscalationService {
       namespace: "parents",
       actorTelegramId: actor.telegramUserId,
     });
+    await this.aiActions.record({
+      kind: "escalation_resolved",
+      actor: "staff",
+      actorTelegramId: actor.telegramUserId,
+      escalationId: id,
+      parentTelegramId: doc.parentTelegramId,
+      payload: { answerLen: text.length },
+    });
+    for (const notice of doc.notices) {
+      await this.messenger.editText(
+        notice.chatId,
+        notice.messageId,
+        `Закрыто **${actor.displayName ?? actor.username ?? "админ"}**.\n\n«${doc.question}»\n\nОтвет ушёл родителю.`,
+      ).catch(() => undefined);
+    }
     return "Ушло родителю (reply на его вопрос). Запомнила ответ — в следующий раз смогу сама.";
   }
 }

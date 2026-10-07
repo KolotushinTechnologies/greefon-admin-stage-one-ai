@@ -20,7 +20,6 @@
     "web:build": "npm --prefix web run build"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.68.0",
     "@fastify/cors": "^11.1.0",
     "@xenova/transformers": "^2.17.2",
     "amqplib": "^0.10.9",

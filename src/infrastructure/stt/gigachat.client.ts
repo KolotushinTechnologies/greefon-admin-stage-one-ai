@@ -63,6 +63,27 @@ export class GigaChatClient {
     attachments: string[];
     temperature?: number;
   }): Promise<string> {
+    const payload = await this.chatCompletions({
+      model: this.env.SBER_MODEL,
+      temperature: input.temperature ?? 0.1,
+      function_call: "auto",
+      messages: [
+        {
+          role: "user",
+          content: input.content,
+          attachments: input.attachments,
+        },
+      ],
+    });
+    const content = payload?.choices?.[0]?.message?.content;
+    if (typeof content !== "string") {
+      throw new Error("GigaChat chat: пустой ответ.");
+    }
+    return content.trim();
+  }
+
+  /** Сырой /chat/completions (агенты, STT, function calling). */
+  async chatCompletions(body: Record<string, unknown>): Promise<any> {
     const token = await this.getAccessToken();
     const response = await this.fetchFn(`${this.baseUrl()}/chat/completions`, {
       method: "POST",
@@ -72,28 +93,17 @@ export class GigaChatClient {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: this.env.SBER_MODEL,
-        temperature: input.temperature ?? 0.1,
-        // docs: attachments + function_call auto for file-aware generation
-        function_call: "auto",
-        messages: [
-          {
-            role: "user",
-            content: input.content,
-            attachments: input.attachments,
-          },
-        ],
+        ...body,
+        model: (typeof body.model === "string" && body.model.length > 0
+          ? body.model
+          : this.env.SBER_MODEL),
       }),
     });
     const payload = await readJson(response);
     if (!response.ok) {
       throw new Error(`GigaChat chat ${response.status}: ${summarizeError(payload)}`);
     }
-    const content = payload?.choices?.[0]?.message?.content;
-    if (typeof content !== "string") {
-      throw new Error("GigaChat chat: пустой ответ.");
-    }
-    return content.trim();
+    return payload;
   }
 
   private baseUrl(): string {

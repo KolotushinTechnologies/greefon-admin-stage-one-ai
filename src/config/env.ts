@@ -7,8 +7,6 @@ const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().positive().default(3890),
   MONGODB_URI: z.string().min(1),
-  ANTHROPIC_API_KEY: z.string().min(1),
-  ANTHROPIC_MODEL: z.string().min(1),
   TG_BOT_TOKEN: z.string().min(1),
   REDIS_URL: z.string().min(1).default("redis://127.0.0.1:6379"),
   RABBITMQ_URL: z.string().min(1).default("amqp://greefon:greefon@127.0.0.1:5672"),
@@ -27,12 +25,12 @@ const envSchema = z.object({
   ASSISTANT_CHAT_PLACEHOLDER: z.string().optional().default(""),
   ASSISTANT_THINKING_LABEL: z.string().optional().default(""),
   ASSISTANT_OPEN_LABEL: z.string().optional().default(""),
-  SBER_AUTH_KEY: z.string().optional().default(""),
+  SBER_AUTH_KEY: z.string().min(1),
   SBER_CLIENTID: z.string().optional().default(""),
   SBER_CLIENT_SECRET: z.string().optional().default(""),
   SBER_SCOPE: z.string().optional().default("GIGACHAT_API_PERS"),
   SBER_BASE_URL: z.string().optional().default("https://api.giga.chat/v1"),
-  SBER_MODEL: z.string().optional().default("GigaChat-2-Max"),
+  SBER_MODEL: z.string().min(1).default("GigaChat-2-Max"),
   SBER_TLS_INSECURE: z
     .string()
     .optional()
