@@ -49,6 +49,7 @@ import { ProblemRadarService } from "../platform/copilot/problem-radar.service.j
 import { LeadRepository } from "../platform/copilot/lead.repository.js";
 import { SalesCoachService } from "../platform/copilot/sales-coach.service.js";
 import { ClientCardService } from "../platform/copilot/client-card.service.js";
+import { ParentInboundDeskService } from "../platform/copilot/parent-inbound-desk.service.js";
 
 export type AppCradle = {
   env: AppEnv;
@@ -93,6 +94,7 @@ export type AppCradle = {
   salesCoach: SalesCoachService;
   leads: LeadRepository;
   clientCard: ClientCardService;
+  parentInboundDesk: ParentInboundDeskService;
   contextHints: ContextHintsService;
   problemRadar: ProblemRadarService;
   aiActions: AiActionLogRepository;
@@ -151,6 +153,7 @@ export function buildContainer(env: AppEnv): AwilixContainer<AppCradle> {
     leads: asClass(LeadRepository).singleton(),
     clientCard: asClass(ClientCardService).singleton(),
     copilot: asClass(CopilotService).singleton(),
+    parentInboundDesk: asClass(ParentInboundDeskService).singleton(),
     escalationService: asClass(EscalationService).singleton(),
     usage: asClass(UsageMeter).singleton(),
     digest: asClass(DigestService).singleton(),

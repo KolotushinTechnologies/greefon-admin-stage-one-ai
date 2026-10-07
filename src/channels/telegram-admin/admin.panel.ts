@@ -17,6 +17,7 @@ import type { DigestService } from "../../platform/analytics/digest.service.js";
 import type { DailyReportService } from "../../platform/analytics/daily-report.service.js";
 import type { ProblemRadarService } from "../../platform/copilot/problem-radar.service.js";
 import type { ClientCardService } from "../../platform/copilot/client-card.service.js";
+import type { LeadRepository } from "../../platform/copilot/lead.repository.js";
 import { ConfirmationRequiredError } from "../../platform/shared/errors.js";
 import {
   confirmSendKeyboard,
@@ -54,6 +55,7 @@ export class AdminPanel {
     private readonly problemRadar: ProblemRadarService,
     private readonly dailyReport: DailyReportService,
     private readonly clientCard: ClientCardService,
+    private readonly leads: LeadRepository,
   ) {}
 
   decorate(user: StaffUser, reply: BotReply): BotReply {
@@ -269,6 +271,11 @@ export class AdminPanel {
         return this.decorate(user, {
           text: "Кого ищем? Напиши имя ребёнка/родителя, телефон или `@username`.\nМожно сразу: `клиент Маша Петрова`.",
         });
+      case "лиды":
+        if (!hasAtLeast(user.role, "admin")) {
+          return this.decorate(user, { text: "Лиды — для админа и суперадмина." });
+        }
+        return this.leadsScreen(user);
       case "штат":
         if (!hasAtLeast(user.role, "superadmin")) {
           return this.decorate(user, { text: "Штат может смотреть только суперадмин." });
@@ -859,6 +866,34 @@ export class AdminPanel {
 
   private async topicsList(user: StaffUser): Promise<BotReply> {
     return this.knowledgeCategory(user, "topic", 0);
+  }
+
+  private async leadsScreen(user: StaffUser): Promise<BotReply> {
+    const rows = await this.leads.listOpen(25);
+    if (rows.length === 0) {
+      return this.decorate(user, {
+        text: "Открытых лидов в боте пока нет. Новые появятся после входящих заявок.",
+      });
+    }
+    const heatIcon = (h: string) => (h === "hot" ? "🔥" : h === "warm" ? "🟡" : "⚪");
+    const lines = [
+      "**🎯 Лиды (бот)** — сначала горячие",
+      "",
+      ...rows.map((l, i) => {
+        const who = l.parentDisplayName ?? (l.parentUsername ? `@${l.parentUsername}` : l.parentTelegramId);
+        const step = l.nextSalesStep ? `\n   → ${l.nextSalesStep}` : "";
+        return `${i + 1}. ${heatIcon(String(l.heat))} **${who}** · ${l.stageLabel}${step}`;
+      }),
+    ];
+    const withEsc = rows.filter((l) => l.escalationId).slice(0, 8);
+    const buttons = withEsc.map((l) => ({
+      text: (l.parentDisplayName ?? l.parentUsername ?? "лид").slice(0, 28),
+      data: `e:o:${l.escalationId}`,
+    }));
+    return this.decorate(user, {
+      text: lines.join("\n"),
+      inline: buttons.length > 0 ? pageButtons(buttons, []) : undefined,
+    });
   }
 
   /** Прямой запрос: `клиент …` / `карточка …` / `@username`. */

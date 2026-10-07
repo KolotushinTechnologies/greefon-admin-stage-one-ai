@@ -4,6 +4,8 @@ import type { StaffService } from "../identity/staff.service.js";
 import type { TelegramMessenger } from "../../infrastructure/telegram/telegram.messenger.js";
 import type { AiActionLogRepository } from "./ai-action-log.repository.js";
 import type { UsageMeter } from "../analytics/usage.meter.js";
+import type { CrmOpsRepository } from "../crm-import/crm-data.repository.js";
+import type { CrmPaymentRecord } from "../crm-import/types.js";
 import { InlineKeyboard } from "grammy";
 
 export type RadarKind =
@@ -19,7 +21,9 @@ export type RadarKind =
 export type RadarHit = {
   kind: RadarKind;
   label: string;
-  escalation: Escalation;
+  escalation?: Escalation;
+  /** CRM-only сигнал без дела в боте. */
+  crmLine?: string;
 };
 
 /** Радар проблем (ТЗ №10). */
@@ -30,6 +34,7 @@ export class ProblemRadarService {
     private readonly messenger: TelegramMessenger,
     private readonly aiActions: AiActionLogRepository,
     private readonly usage: UsageMeter,
+    private readonly crmOps: CrmOpsRepository,
   ) {}
 
   async scan(limit = 30): Promise<RadarHit[]> {
@@ -42,7 +47,6 @@ export class ProblemRadarService {
       hits.push(...detectOnCase(item));
     }
 
-    // Повторяющиеся вопросы по одному родителю за 14 дней
     const byParent = new Map<string, Escalation[]>();
     for (const item of recent) {
       const list = byParent.get(item.parentTelegramId) ?? [];
@@ -69,6 +73,15 @@ export class ProblemRadarService {
           }
         }
       }
+    }
+
+    try {
+      const unpaid = await this.crmOps.listUnpaid(15);
+      for (const pay of unpaid) {
+        hits.push(crmPaymentHit(pay));
+      }
+    } catch {
+      // CRM optional
     }
 
     return dedupeHits(hits).slice(0, limit);
@@ -114,22 +127,35 @@ export class ProblemRadarService {
     for (const person of desk) {
       await this.messenger.sendText(person.telegramUserId, summary);
       for (const hit of hits.slice(0, 15)) {
-        const who =
-          hit.escalation.parentDisplayName ??
-          (hit.escalation.parentUsername ? `@${hit.escalation.parentUsername}` : "родитель");
-        const text = [
-          `🚨 **${hit.label}**`,
-          who,
-          `«${hit.escalation.question.slice(0, 160)}»`,
-        ].join("\n");
-        const keyboard = new InlineKeyboard()
-          .text("Открыть", `e:o:${hit.escalation._id}`)
-          .text("Ответ", `e:d:${hit.escalation._id}`)
-          .text("Закрыть", `e:x:${hit.escalation._id}`);
-        await this.messenger.sendText(person.telegramUserId, text, keyboard);
+        if (hit.escalation) {
+          const who =
+            hit.escalation.parentDisplayName ??
+            (hit.escalation.parentUsername ? `@${hit.escalation.parentUsername}` : "родитель");
+          const text = [`🚨 **${hit.label}**`, who, `«${hit.escalation.question.slice(0, 160)}»`].join("\n");
+          const keyboard = new InlineKeyboard()
+            .text("Открыть", `e:o:${hit.escalation._id}`)
+            .text("Ответ", `e:d:${hit.escalation._id}`)
+            .text("Закрыть", `e:x:${hit.escalation._id}`);
+          await this.messenger.sendText(person.telegramUserId, text, keyboard);
+        } else if (hit.crmLine) {
+          await this.messenger.sendText(
+            person.telegramUserId,
+            [`🚨 **${hit.label}**`, hit.crmLine, "_Сверь в CRM или найди через «Клиент»._"].join("\n"),
+          );
+        }
       }
     }
   }
+}
+
+function crmPaymentHit(pay: CrmPaymentRecord): RadarHit {
+  const who = pay.clientName ?? pay.phone ?? "клиент CRM";
+  const rub = Math.round(pay.amountKopecks / 100).toLocaleString("ru-RU");
+  return {
+    kind: "payment_overdue",
+    label: "Просроченная / неоплаченная оплата (CRM)",
+    crmLine: `**${who}** · ~${rub} ₽${pay.month ? ` · месяц ${pay.month}` : ""}${pay.purpose ? ` · ${pay.purpose}` : ""}`,
+  };
 }
 
 function detectOnCase(item: Escalation): RadarHit[] {
@@ -189,7 +215,9 @@ function dedupeHits(hits: RadarHit[]): RadarHit[] {
   const seen = new Set<string>();
   const out: RadarHit[] = [];
   for (const hit of hits) {
-    const key = `${hit.kind}:${hit.escalation._id}`;
+    const key = hit.escalation
+      ? `${hit.kind}:${hit.escalation._id}`
+      : `${hit.kind}:${hit.crmLine ?? hit.label}`;
     if (seen.has(key)) {
       continue;
     }

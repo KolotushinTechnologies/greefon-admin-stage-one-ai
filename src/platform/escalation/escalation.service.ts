@@ -8,6 +8,7 @@ import type { CopilotService } from "../copilot/copilot.service.js";
 import type { AiActionLogRepository } from "../copilot/ai-action-log.repository.js";
 import type { ContextHintsService } from "../copilot/context-hints.service.js";
 import type { LeadRepository } from "../copilot/lead.repository.js";
+import type { CopilotBrief } from "../copilot/types.js";
 import type { EscalationRepository } from "./escalation.repository.js";
 import type { Escalation } from "./types.js";
 import { InlineKeyboard } from "grammy";
@@ -33,12 +34,16 @@ export class EscalationService {
     parentDisplayName: string | null;
     question: string;
     reason: string;
+    /** Уже разобранный brief — чтобы не звать LLM дважды. */
+    brief?: CopilotBrief;
   }): Promise<Escalation> {
-    const brief = await this.copilot.analyzeInbound({
-      question: input.question,
-      reason: input.reason,
-      parentDisplayName: input.parentDisplayName,
-    });
+    const brief =
+      input.brief ??
+      (await this.copilot.analyzeInbound({
+        question: input.question,
+        reason: input.reason,
+        parentDisplayName: input.parentDisplayName,
+      }));
 
     const doc = await this.escalationDocs.insert({
       status: "open",
@@ -74,11 +79,16 @@ export class EscalationService {
     const desk = await this.staff.listDesk();
     const who = input.parentDisplayName ?? (input.parentUsername ? `@${input.parentUsername}` : "родитель");
     const whoLine = who + (input.parentUsername ? ` (@${input.parentUsername})` : "");
-    const text = this.copilot.formatAdminCard({
-      who: whoLine,
-      question: input.question,
-      brief,
-    });
+    const autoNote = input.reason.startsWith("auto_desk:")
+      ? "⚠️ Бот уже ответил родителю. Черновик — если нужно уточнить/дожать вручную.\n\n"
+      : "";
+    const text =
+      autoNote +
+      this.copilot.formatAdminCard({
+        who: whoLine,
+        question: input.question,
+        brief,
+      });
     const hintBlock = this.contextHints.formatBlock(await this.contextHints.forEscalation(doc));
     const keyboard = new InlineKeyboard()
       .text("Отправить", `e:s:${doc._id}`)

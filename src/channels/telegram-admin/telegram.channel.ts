@@ -16,6 +16,7 @@ import type { OutboundMedia } from "../../platform/conversation/types.js";
 import type { OutboundRepository } from "../../platform/messaging/outbound.repository.js";
 import { yandexRouteFromCoordsUrl } from "../../platform/org/yandex-maps.js";
 import type { KnowledgeGroundingService } from "../../platform/knowledge/knowledge-grounding.service.js";
+import type { ParentInboundDeskService } from "../../platform/copilot/parent-inbound-desk.service.js";
 import { AdminPanel, type BotReply } from "./admin.panel.js";
 import { MENU_COMMANDS, parentLocationKeyboard } from "./keyboards.js";
 
@@ -35,6 +36,7 @@ export class TelegramAdminChannel {
     private readonly stt: GigaChatSttService,
     private readonly knowledgeGrounding: KnowledgeGroundingService,
     private readonly outbound: OutboundRepository,
+    private readonly parentInboundDesk: ParentInboundDeskService,
   ) {}
 
   get bot(): Bot {
@@ -222,6 +224,14 @@ export class TelegramAdminChannel {
         await this.messenger.sendText(chatId, answer.text, answer.inline, {
           replyToMessageId: ctx.message.message_id,
         });
+        this.queueDeskCard({
+          parentTelegramId: telegramUserId,
+          parentChatId: chatId,
+          parentMessageId: ctx.message.message_id,
+          parentUsername: username,
+          parentDisplayName: displayName,
+          question,
+        });
         return;
       }
 
@@ -304,6 +314,14 @@ export class TelegramAdminChannel {
         await this.messenger.sendText(chatId, answer.text, answer.inline, {
           replyToMessageId: ctx.message!.message_id,
         });
+        this.queueDeskCard({
+          parentTelegramId: telegramUserId,
+          parentChatId: chatId,
+          parentMessageId: ctx.message!.message_id,
+          parentUsername: username,
+          parentDisplayName: displayName,
+          question,
+        });
         return;
       }
 
@@ -370,17 +388,37 @@ export class TelegramAdminChannel {
       }
       if (answer.inline) {
         await this.messenger.sendText(chatId, answer.text, answer.inline);
-        return;
-      }
-      if (dest) {
+      } else if (dest) {
         await this.messenger.sendText(chatId, answer.text, parentLocationKeyboard());
-        return;
+      } else {
+        await this.messenger.sendText(chatId, answer.text);
       }
-      await this.messenger.sendText(chatId, answer.text);
+      this.queueDeskCard({
+        parentTelegramId: telegramUserId,
+        parentChatId: chatId,
+        parentMessageId: messageId ?? null,
+        parentUsername: username,
+        parentDisplayName: displayName,
+        question: text,
+      });
       return;
     }
 
     await this.onStaffPrivateText(user, chatId, text, telegramUserId, username, displayName);
+  }
+
+  /** Карточка на стол админу (фон), не блокирует ответ родителю. */
+  private queueDeskCard(input: {
+    parentTelegramId: string;
+    parentChatId: string;
+    parentMessageId?: number | null;
+    parentUsername: string | null;
+    parentDisplayName: string | null;
+    question: string;
+  }): void {
+    void this.parentInboundDesk.maybeOpenDesk(input).catch((error) => {
+      console.error("parent inbound desk", error);
+    });
   }
 
   private async onStaffPrivateText(

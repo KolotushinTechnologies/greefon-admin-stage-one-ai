@@ -47,6 +47,11 @@ export class ClientCardService {
       }
     }
 
+    const botSide = await this.lookupTelegramSide(query);
+    if (botSide) {
+      blocks.push("", "—", botSide);
+    }
+
     return blocks.join("\n").trim();
   }
 

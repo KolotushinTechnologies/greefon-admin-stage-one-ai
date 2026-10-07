@@ -5,6 +5,9 @@ import type { EscalationRepository } from "../escalation/escalation.repository.j
 import type { AttentionBucket, Escalation } from "../escalation/types.js";
 import type { UsageMeter } from "./usage.meter.js";
 import type { AiActionLogRepository } from "../copilot/ai-action-log.repository.js";
+import type { LeadRepository } from "../copilot/lead.repository.js";
+import type { CrmPeopleRepository, CrmOpsRepository } from "../crm-import/crm-data.repository.js";
+import type { CrmStudent } from "../crm-import/types.js";
 import { InlineKeyboard } from "grammy";
 
 const HEAT_REVENUE: Record<string, number> = {
@@ -21,6 +24,9 @@ export class DigestService {
     private readonly escalationDocs: EscalationRepository,
     private readonly usage: UsageMeter,
     private readonly aiActions: AiActionLogRepository,
+    private readonly leads: LeadRepository,
+    private readonly crmPeople: CrmPeopleRepository,
+    private readonly crmOps: CrmOpsRepository,
   ) {}
 
   async sendEvening(): Promise<void> {
@@ -70,13 +76,29 @@ export class DigestService {
       }
     }
 
-    const revenue = open.reduce((sum, item) => sum + (HEAT_REVENUE[item.heat ?? ""] ?? 0), 0);
+    const [hotLeads, applications, staleSamplers, unpaidCount] = await Promise.all([
+      this.leads.listOpen(20),
+      this.crmPeople.listByStatus(["application"], 10).catch(() => [] as CrmStudent[]),
+      this.crmPeople.listStaleSamplers(7, 10).catch(() => [] as CrmStudent[]),
+      this.crmOps.countUnpaid().catch(() => 0),
+    ]);
+    const hotOnly = hotLeads.filter((l) => l.heat === "hot");
+    const warmLeads = hotLeads.filter((l) => l.heat === "warm");
+
+    const leadRevenue = open.reduce((sum, item) => sum + (HEAT_REVENUE[item.heat ?? ""] ?? 0), 0);
+    const unpaidHint = unpaidCount > 0 ? unpaidCount * 5_000 : 0;
+    const revenue = leadRevenue + unpaidHint;
+
     const header = [
       "**ГРИФОН AI — ДЕЛА НА СЕГОДНЯ**",
       "",
       `🔴 Требуют внимания — **${urgent.length}**`,
       `🟡 Нужно проверить — **${check.length}**`,
       `🟢 Новые заявки — **${fresh.length}**`,
+      `🔥 Горячих лидов (бот) — **${hotOnly.length}** · тёплых **${warmLeads.length}**`,
+      `📝 CRM заявки (application) — **${applications.length}**`,
+      `👟 Пробные без покупки (sampler >7д) — **${staleSamplers.length}**`,
+      `💳 Неоплаченных счетов CRM — **${unpaidCount}**`,
       `💰 Потенциальная выручка — **${formatRub(revenue)}**`,
     ].join("\n");
 
@@ -92,6 +114,10 @@ export class DigestService {
         urgent: urgent.length,
         check: check.length,
         fresh: fresh.length,
+        hotLeads: hotOnly.length,
+        applications: applications.length,
+        staleSamplers: staleSamplers.length,
+        unpaid: unpaidCount,
         revenue,
         open: open.length,
       },
@@ -118,7 +144,24 @@ export class DigestService {
         }
       }
 
-      if (open.length === 0) {
+      const crmLines = [
+        "**CRM / воронка (без кнопок — сверь в CRM или «Клиент»)**",
+        ...applications.slice(0, 6).map((s) => `• заявка: **${s.name}**${s.branchName ? ` · ${s.branchName}` : ""} — не записался после консультации?`),
+        ...staleSamplers.slice(0, 6).map((s) => `• пробное: **${s.name}**${s.branchName ? ` · ${s.branchName}` : ""} — покупки нет`),
+        unpaidCount > 0 ? `• неоплаченных счетов: **${unpaidCount}** (кнопка «Радар» или CRM)` : null,
+        hotOnly.length > 0
+          ? `• горячие из бота: ${hotOnly
+              .slice(0, 5)
+              .map((l) => l.parentDisplayName ?? l.parentUsername ?? l.parentTelegramId)
+              .join(", ")} — меню «Лиды»`
+          : null,
+      ].filter((x): x is string => Boolean(x));
+
+      if (crmLines.length > 1) {
+        await this.messenger.sendText(person.telegramUserId, crmLines.join("\n"));
+      }
+
+      if (open.length === 0 && applications.length === 0 && staleSamplers.length === 0) {
         await this.messenger.sendText(
           person.telegramUserId,
           "Открытых дел нет — можно выдохнуть. Новые заявки прилетят сюда сами.",
@@ -141,7 +184,7 @@ function classifyAttention(item: Escalation, nowMs: number): AttentionBucket {
     intent === "complaint" ||
     idleH >= 12 ||
     ageH >= 24 ||
-    /не ответил|обещали оплат|возврат|жалоб|конфликт/.test(note)
+    /не ответил|обещали оплат|возврат|жалоб|конфликт|обещали прийти|после пробн/.test(note)
   ) {
     return "urgent";
   }
@@ -156,6 +199,10 @@ function caseLabel(item: Escalation, nowMs: number): string {
     return item.followUpNote.trim();
   }
   const idleH = Math.max(0, Math.round((nowMs - new Date(item.updatedAt).getTime()) / 3_600_000));
+  const note = `${item.reason} ${item.question}`.toLowerCase();
+  if (/обещали прийти|придёт|пробн/.test(note) && item.intent === "new_lead") {
+    return "обещали прийти / ждём на пробное";
+  }
   if (item.status === "open" && idleH >= 1) {
     return `не ответили ${idleH} ч`;
   }

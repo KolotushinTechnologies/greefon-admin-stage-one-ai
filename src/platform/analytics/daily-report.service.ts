@@ -50,7 +50,9 @@ export class DailyReportService {
       this.crmOps.sumPaidSince(from).catch(() => ({ count: 0, amountKopecks: 0 })),
     ]);
 
-    const newLeads = Math.max(newLeadsBot, applications);
+    const unpaidOpen = await this.crmOps.countUnpaid().catch(() => 0);
+
+    // Воронка: бот и CRM раздельно, чтобы не склеивать разные источники в одну цифру.
     const signedUp = samplers;
     const came = visits;
     const bought = payments.count;
@@ -61,19 +63,21 @@ export class DailyReportService {
     const lines = [
       `**📊 ГРИФОН — ОТЧЁТ ЗА ${day}**`,
       "",
-      "**Воронка**",
-      `🟢 Новые заявки → **${newLeads}**`,
-      `📝 Записались (пробное/sampler) → **${signedUp}**`,
-      `👟 Пришли (отметки) → **${came}**`,
-      `💳 Купили (оплаты) → **${bought}**`,
-      `⚪ Потеряны / сняты → **${lost}**`,
+      "**Воронка (день)**",
+      `🟢 Новые заявки в боте (intent) → **${newLeadsBot}**`,
+      `🟢 CRM application (touched) → **${applications}**`,
+      `📝 Записались CRM sampler → **${signedUp}**`,
+      `👟 Пришли (отметки CRM) → **${came}**`,
+      `💳 Купили (оплаты CRM) → **${bought}**`,
+      `⚪ Потеряны CRM (declined/leave) + отменённые дела → **${lost}**`,
       "",
       "**Деньги**",
       `Оплат за день: **${bought}** на **${formatRub(revenueRub)}**`,
+      `Неоплаченных счетов сейчас: **${unpaidOpen}**`,
       "",
       "**Работа администратора**",
       `Родители писали: **${snap.parentMessages}**`,
-      `Эскалаций в штаб: **${snap.escalations}**`,
+      `Эскалаций / карточек на стол: **${snap.escalations}**`,
       `Закрыто ответом: **${resolvedToday}**`,
       `Рассылок: **${broadcasts}**`,
       `Открытых дел сейчас: **${openTasks}**`,
@@ -87,7 +91,7 @@ export class DailyReportService {
 
     lines.push(
       "",
-      "_Заявки: бот + CRM application. Запись/пришли/оплаты — по данным CRM-импорта за сутки (synced/updated)._",
+      "_CRM-цифры — по synced/updated за сутки после импорта. Бот и CRM не суммируем в одну «заявку»._",
     );
     return lines.join("\n");
   }

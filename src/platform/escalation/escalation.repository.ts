@@ -50,6 +50,13 @@ export class EscalationRepository {
       .toArray();
   }
 
+  async findOpenByParent(parentTelegramId: string): Promise<Escalation | null> {
+    return this.col().findOne(
+      { parentTelegramId, status: { $in: ["open", "claimed"] } },
+      { sort: { updatedAt: -1 } },
+    );
+  }
+
   async listSince(from: Date, limit = 80): Promise<Escalation[]> {
     return this.col()
       .find({ createdAt: { $gte: from } })

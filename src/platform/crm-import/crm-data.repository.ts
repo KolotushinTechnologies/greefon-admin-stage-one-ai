@@ -132,6 +132,47 @@ export class CrmPeopleRepository {
     }
     return this.students().countDocuments(query);
   }
+
+  async listByStatus(statuses: string[], limit = 20): Promise<CrmStudent[]> {
+    return this.students()
+      .find({ status: { $in: statuses } })
+      .sort({ updatedAt: -1 })
+      .limit(Math.min(Math.max(limit, 1), 40))
+      .toArray();
+  }
+
+  /** Пробные (sampler), давно без обновления — «были на пробном, покупки нет». */
+  async listStaleSamplers(olderThanDays: number, limit = 12): Promise<CrmStudent[]> {
+    const cutoff = new Date(Date.now() - olderThanDays * 86_400_000);
+    return this.students()
+      .find({ status: "sampler", updatedAt: { $lte: cutoff } })
+      .sort({ updatedAt: 1 })
+      .limit(Math.min(Math.max(limit, 1), 30))
+      .toArray();
+  }
+
+  async findStudentByPhone(phoneDigits: string): Promise<CrmStudent | null> {
+    if (phoneDigits.length < 10) {
+      return null;
+    }
+    const tail = phoneDigits.slice(-10);
+    return this.students().findOne({
+      $or: [
+        { accountPhone: { $regex: tail } },
+        { accountAddPhone: { $regex: tail } },
+      ],
+    });
+  }
+
+  async findGuardianByPhone(phoneDigits: string): Promise<CrmGuardian | null> {
+    if (phoneDigits.length < 10) {
+      return null;
+    }
+    const tail = phoneDigits.slice(-10);
+    return this.guardians().findOne({
+      $or: [{ phone: { $regex: tail } }, { addPhone: { $regex: tail } }],
+    });
+  }
 }
 
 export class CrmOpsRepository {
@@ -383,6 +424,23 @@ export class CrmOpsRepository {
       .toArray();
     const amountKopecks = rows.reduce((sum, row) => sum + (Number(row.amountKopecks) || 0), 0);
     return { count: rows.length, amountKopecks };
+  }
+
+  /** Неоплаченные счета / долги из CRM. */
+  async listUnpaid(limit = 20): Promise<CrmPaymentRecord[]> {
+    return this.payments()
+      .find({ paid: false, amountKopecks: { $gt: 0 } })
+      .sort({ updatedAt: -1 })
+      .limit(Math.min(Math.max(limit, 1), 40))
+      .toArray();
+  }
+
+  async countUnpaid(): Promise<number> {
+    return this.payments().countDocuments({ paid: false, amountKopecks: { $gt: 0 } });
+  }
+
+  async findLatestPaymentForClient(clientCrmId: string): Promise<CrmPaymentRecord | null> {
+    return this.payments().findOne({ clientCrmId }, { sort: { updatedAt: -1 } });
   }
 
   async countVisitMarksSince(from: Date): Promise<number> {
