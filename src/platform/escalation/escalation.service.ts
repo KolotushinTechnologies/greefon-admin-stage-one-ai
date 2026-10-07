@@ -101,12 +101,7 @@ export class EscalationService {
     const link = await this.crmLinks.get(input.parentTelegramId);
     const linkLine = this.crmLinks.formatShort(link);
     const autoNote = botAlreadyReplied
-      ? [
-          "⚠️ **Бот уже ответил родителю** (часто кнопками зала/расписания).",
-          "Ниже — **уточнение без повторного приветствия**.",
-          "Жми **Дожать** (свой текст) или **Дослать уточнение**. Не шли полное «Здравствуйте» заново.",
-          "",
-        ].join("\n")
+      ? "⚠️ Бот уже ответил родителю. Ниже — черновик **уточнения** (не второе приветствие).\n\n"
       : "";
     const text =
       autoNote +
@@ -115,9 +110,10 @@ export class EscalationService {
         question: input.question,
         brief: briefForCard,
       }) +
-      (linkLine ? `\n\n${linkLine}` : "");
+      (linkLine ? `\n\n${linkLine}` : "") +
+      "\n\n_Как в ТЗ: Отправить / изменить → или Позвонить. Статусы для «дел на сегодня» — после «Открыть»._";
     const hintBlock = this.contextHints.formatBlock(await this.contextHints.forEscalation(doc));
-    const keyboard = deskCaseKeyboard(doc);
+    const keyboard = deskCaseKeyboard(doc, "notify");
     const notices: Array<{ chatId: string; messageId: number }> = [];
     for (const person of desk) {
       const sent = await this.messenger.sendText(person.telegramUserId, `${text}${hintBlock}`, keyboard);
@@ -298,7 +294,35 @@ export class EscalationService {
       escalationId: id,
       parentTelegramId: doc.parentTelegramId,
     });
-    return { text, inline: deskCaseKeyboard(doc, true) };
+    return { text, inline: deskCaseKeyboard(doc, "card") };
+  }
+
+  /** Экран меток для утренних «дел» — родителю ничего не шлёт. */
+  async openTags(actor: StaffUser, id: string): Promise<{ text: string; inline: InlineKeyboard }> {
+    if (!actor.role || !hasAtLeast(actor.role, "admin")) {
+      throw new AccessDeniedError();
+    }
+    const doc = await this.escalationDocs.findById(id);
+    if (!doc) {
+      throw new NotFoundError("Заявку не нашёл.");
+    }
+    const kind = (doc.followUpKind ?? "none") as FollowUpKind;
+    const who = doc.parentDisplayName ?? (doc.parentUsername ? `@${doc.parentUsername}` : "родитель");
+    return {
+      text: [
+        "**Статус дела** (только для вас и утренних «Дел»)",
+        who,
+        `Сейчас: ${FOLLOW_UP_LABELS[kind]}`,
+        "",
+        "Родителю сообщение **не** уйдёт. Это метка «что с лидом», как в ТЗ:",
+        "• обещал прийти",
+        "• ждём оплату",
+        "• после пробного без покупки",
+        "• не записался — дожать",
+        "• купил / потерян — снять с контроля",
+      ].join("\n"),
+      inline: deskCaseKeyboard(doc, "tags"),
+    };
   }
 
   async setFollowUp(actor: StaffUser, id: string, kindRaw: string): Promise<string> {
@@ -307,7 +331,7 @@ export class EscalationService {
     }
     const parsed = followUpKindSchema.safeParse(kindRaw);
     if (!parsed.success) {
-      return "Неизвестная метка follow-up.";
+      return "Неизвестная метка.";
     }
     const kind = parsed.data;
     const doc = await this.escalationDocs.findById(id);
@@ -332,9 +356,16 @@ export class EscalationService {
       payload: { followUpKind: kind },
     });
     if (kind === "won" || kind === "lost") {
-      return `Пометил как «${FOLLOW_UP_LABELS[kind]}» и снял с открытых дел.`;
+      return [
+        `Статус: **${FOLLOW_UP_LABELS[kind]}**.`,
+        "Дело снято с открытых. Родителю ничего не отправлял.",
+      ].join("\n");
     }
-    return `Follow-up: **${FOLLOW_UP_LABELS[kind]}**. Утром попадёт в нужный блок «дел».`;
+    return [
+      `Статус: **${FOLLOW_UP_LABELS[kind]}**.`,
+      "Родителю ничего не ушло — это метка для кнопки **Дела** утром.",
+      "Ответить родителю: вернись к карточке → Отправить / Дожать.",
+    ].join("\n");
   }
 
   /** Обновить/показать черновик и перевести в режим правки. */
@@ -464,24 +495,36 @@ export class EscalationService {
   }
 }
 
-function deskCaseKeyboard(doc: Escalation, withClose = false): InlineKeyboard {
+/** Клавиатуры как в ts.md: на уведомлении — коротко; метки — отдельным экраном. */
+function deskCaseKeyboard(doc: Escalation, mode: "notify" | "card" | "tags"): InlineKeyboard {
+  const id = doc._id;
   const kb = new InlineKeyboard();
+
+  if (mode === "tags") {
+    return kb
+      .text("Обещал прийти", `e:f:promised_visit:${id}`)
+      .text("Ждём оплату", `e:f:await_payment:${id}`)
+      .row()
+      .text("После пробного", `e:f:after_trial:${id}`)
+      .text("Не записался", `e:f:nurture:${id}`)
+      .row()
+      .text("Купил", `e:f:won:${id}`)
+      .text("Потерян", `e:f:lost:${id}`)
+      .row()
+      .text("← К делу", `e:o:${id}`);
+  }
+
   if (doc.botAlreadyReplied) {
-    kb.text("Дожать", `e:c:${doc._id}`).text("Дослать уточнение", `e:s:${doc._id}`);
+    kb.text("Дожать", `e:c:${id}`).text("Дослать уточнение", `e:s:${id}`);
   } else {
-    kb.text("Отправить", `e:s:${doc._id}`).text("Изменить", `e:c:${doc._id}`);
+    kb.text("Отправить", `e:s:${id}`).text("Изменить", `e:c:${id}`);
   }
-  kb.row().text("Позвонить", `e:p:${doc._id}`).text("CRM", `e:crm:${doc._id}`);
-  kb.row()
-    .text("→ Придёт", `e:f:promised_visit:${doc._id}`)
-    .text("→ Оплата", `e:f:await_payment:${doc._id}`);
-  kb.row()
-    .text("→ После пробного", `e:f:after_trial:${doc._id}`)
-    .text("→ Прогрев", `e:f:nurture:${doc._id}`);
-  kb.row().text("Купили", `e:f:won:${doc._id}`).text("Потеряны", `e:f:lost:${doc._id}`);
-  if (withClose) {
-    kb.row().text("Закрыть", `e:x:${doc._id}`);
+  kb.row().text("Позвонить", `e:p:${id}`).text("Закрыть", `e:x:${id}`);
+
+  if (mode === "card") {
+    kb.row().text("CRM", `e:crm:${id}`).text("Статус дела", `e:tags:${id}`);
   }
+
   return kb;
 }
 

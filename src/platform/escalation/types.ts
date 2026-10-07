@@ -51,10 +51,10 @@ export type AttentionBucket = "urgent" | "check" | "new";
 
 export const FOLLOW_UP_LABELS: Record<FollowUpKind, string> = {
   none: "без метки",
-  promised_visit: "обещали прийти",
+  promised_visit: "обещал прийти",
   await_payment: "ждём оплату",
-  after_trial: "после пробного",
-  nurture: "прогрев",
-  won: "купили",
-  lost: "потеряны",
+  after_trial: "после пробного без покупки",
+  nurture: "не записался — дожать",
+  won: "купил / закрыто успешно",
+  lost: "потерян",
 };

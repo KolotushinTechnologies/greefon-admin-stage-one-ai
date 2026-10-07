@@ -102,7 +102,7 @@ export class DigestService {
       `🚶 Обещали прийти — **${promised}**`,
       `💳 Ждём оплату — **${awaitPay}**`,
       `👟 После пробного — **${afterTrial}**`,
-      `🌱 Не записались после консультации — **${nurture}**`,
+      `🌱 Не записался — дожать — **${nurture}**`,
       `🔥 Горячих лидов (бот) — **${hotOnly.length}** · тёплых **${warmLeads.length}**`,
       `📝 CRM заявки (application) — **${applications.length}**`,
       `👟 CRM sampler >7д без покупки — **${staleSamplers.length}**`,
@@ -211,7 +211,7 @@ function caseLabel(item: Escalation, nowMs: number): string {
   if (kind === "promised_visit") return "обещали прийти";
   if (kind === "await_payment") return "обещали оплатить / ждём оплату";
   if (kind === "after_trial") return "была на пробном, покупки нет";
-  if (kind === "nurture") return "прогрев — не записались после консультации";
+  if (kind === "nurture") return "не записался — дожать";
   if (item.followUpNote && item.followUpNote.trim().length > 0) {
     return item.followUpNote.trim();
   }

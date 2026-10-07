@@ -344,6 +344,11 @@ export class AdminPanel {
       const card = await this.escalationService.openCard(user, openCase[1]);
       return this.decorate(user, { text: card.text, inline: card.inline, edit: true });
     }
+    const tags = /^e:tags:(.+)$/.exec(data);
+    if (tags?.[1]) {
+      const screen = await this.escalationService.openTags(user, tags[1]);
+      return this.decorate(user, { text: screen.text, inline: screen.inline, edit: true });
+    }
     const suggest = /^e:d:(.+)$/.exec(data);
     if (suggest?.[1]) {
       const prompt = await this.escalationService.suggestReply(user, suggest[1]);
@@ -1411,7 +1416,8 @@ function minRoleForCallback(data: string): StaffRole {
     data.startsWith("e:d:") ||
     data.startsWith("e:x:") ||
     data.startsWith("e:f:") ||
-    data.startsWith("e:crm:")
+    data.startsWith("e:crm:") ||
+    data.startsWith("e:tags:")
   ) {
     return "admin";
   }
