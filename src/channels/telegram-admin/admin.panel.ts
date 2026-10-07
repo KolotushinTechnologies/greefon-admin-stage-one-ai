@@ -18,6 +18,7 @@ import type { DailyReportService } from "../../platform/analytics/daily-report.s
 import type { ProblemRadarService } from "../../platform/copilot/problem-radar.service.js";
 import type { ClientCardService } from "../../platform/copilot/client-card.service.js";
 import type { LeadRepository } from "../../platform/copilot/lead.repository.js";
+import type { CrmLinkService } from "../../platform/copilot/crm-link.service.js";
 import { ConfirmationRequiredError } from "../../platform/shared/errors.js";
 import {
   confirmSendKeyboard,
@@ -56,6 +57,7 @@ export class AdminPanel {
     private readonly dailyReport: DailyReportService,
     private readonly clientCard: ClientCardService,
     private readonly leads: LeadRepository,
+    private readonly crmLinks: CrmLinkService,
   ) {}
 
   decorate(user: StaffUser, reply: BotReply): BotReply {
@@ -356,6 +358,23 @@ export class AdminPanel {
       return this.decorate(user, {
         text: await this.escalationService.closeQuietly(user, closeCase[1]),
         edit: true,
+      });
+    }
+    const followUp = /^e:f:([a-z_]+):(.+)$/.exec(data);
+    if (followUp?.[1] && followUp[2]) {
+      return this.decorate(user, {
+        text: await this.escalationService.setFollowUp(user, followUp[2], followUp[1]),
+        edit: true,
+      });
+    }
+    const crmBind = /^e:crm:(.+)$/.exec(data);
+    if (crmBind?.[1]) {
+      await this.conversations.setPendingUi(user.telegramUserId, {
+        kind: "crm_link",
+        escalationId: crmBind[1],
+      });
+      return this.decorate(user, {
+        text: "Привязка CRM: пришли **телефон** родителя (+7…), **crmId** ученика или имя ребёнка.\nПосле привязки карточка и «Позвонить» подтянут CRM.",
       });
     }
     if (data === "staff:menu" || data.startsWith("staff:")) {
@@ -928,6 +947,15 @@ export class AdminPanel {
       const card = await this.clientCard.lookup(text);
       return this.decorate(user, { text: card });
     }
+    if (pending.kind === "crm_link") {
+      await this.conversations.setPendingUi(user.telegramUserId, null);
+      const result = await this.crmLinks.linkFromEscalation({
+        escalationId: pending.escalationId,
+        query: text,
+        actorTelegramId: user.telegramUserId,
+      });
+      return this.decorate(user, { text: result });
+    }
     if (pending.kind === "assign_role" || pending.kind === "revoke_role") {
       const target = parseStaffTarget(text);
       try {
@@ -1375,7 +1403,16 @@ function minRoleForCallback(data: string): StaffRole {
   if (data.startsWith("staff:") || data === "notes" || data.startsWith("notes:")) {
     return "superadmin";
   }
-  if (data.startsWith("e:c:") || data.startsWith("e:s:") || data.startsWith("e:p:") || data.startsWith("e:o:") || data.startsWith("e:d:") || data.startsWith("e:x:")) {
+  if (
+    data.startsWith("e:c:") ||
+    data.startsWith("e:s:") ||
+    data.startsWith("e:p:") ||
+    data.startsWith("e:o:") ||
+    data.startsWith("e:d:") ||
+    data.startsWith("e:x:") ||
+    data.startsWith("e:f:") ||
+    data.startsWith("e:crm:")
+  ) {
     return "admin";
   }
   if (
@@ -1405,7 +1442,8 @@ function minRoleForPending(kind: string): StaffRole {
     kind === "escalate_answer" ||
     kind === "kb_field" ||
     kind === "event_add" ||
-    kind === "client_lookup"
+    kind === "client_lookup" ||
+    kind === "crm_link"
   ) {
     return "admin";
   }

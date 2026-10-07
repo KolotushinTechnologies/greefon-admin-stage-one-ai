@@ -1,6 +1,6 @@
 import { ObjectId, type Collection } from "mongodb";
 import type { MongoConnection } from "../../infrastructure/mongo/mongo.client.js";
-import type { Escalation, EscalationStatus } from "./types.js";
+import type { Escalation, EscalationStatus, FollowUpKind } from "./types.js";
 
 export class EscalationRepository {
   constructor(private readonly mongo: MongoConnection) {}
@@ -39,6 +39,14 @@ export class EscalationRepository {
       .find({ status: { $in: ["open", "claimed"] } })
       .sort({ updatedAt: 1 })
       .limit(Math.min(Math.max(limit, 1), 80))
+      .toArray();
+  }
+
+  async listOpenByFollowUp(kinds: FollowUpKind[], limit = 30): Promise<Escalation[]> {
+    return this.col()
+      .find({ status: { $in: ["open", "claimed"] }, followUpKind: { $in: kinds } })
+      .sort({ updatedAt: 1 })
+      .limit(Math.min(Math.max(limit, 1), 60))
       .toArray();
   }
 

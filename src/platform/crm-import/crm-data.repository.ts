@@ -91,11 +91,30 @@ export class CrmPeopleRepository {
     const now = new Date();
     const existing = await this.students()
       .find({ crmId: { $in: inputs.map((item) => item.crmId) } })
-      .project({ _id: 1, crmId: 1, createdAt: 1 })
+      .project({ _id: 1, crmId: 1, createdAt: 1, status: 1, name: 1 })
       .toArray();
     const byCrm = new Map(existing.map((row) => [row.crmId, row]));
+    const funnelDocs: Array<{
+      _id: string;
+      studentCrmId: string;
+      studentName: string;
+      fromStatus: string | null;
+      toStatus: string;
+      at: Date;
+    }> = [];
     const ops = inputs.map((input) => {
       const prev = byCrm.get(input.crmId);
+      const prevStatus = prev && "status" in prev ? String((prev as { status?: string }).status ?? "") : null;
+      if (prev && prevStatus !== null && prevStatus !== input.status) {
+        funnelDocs.push({
+          _id: new ObjectId().toHexString(),
+          studentCrmId: input.crmId,
+          studentName: input.name,
+          fromStatus: prevStatus || null,
+          toStatus: input.status,
+          at: now,
+        });
+      }
       const doc: CrmStudent = {
         ...input,
         _id: prev?._id ?? new ObjectId().toHexString(),
@@ -111,6 +130,13 @@ export class CrmPeopleRepository {
       };
     });
     const result = await this.students().bulkWrite(ops, { ordered: false });
+    if (funnelDocs.length > 0) {
+      await this.mongo
+        .getDb()
+        .collection("crm_funnel_events")
+        .insertMany(funnelDocs as Array<Record<string, unknown>>, { ordered: false })
+        .catch(() => undefined);
+    }
     return result.upsertedCount + result.modifiedCount + result.matchedCount;
   }
 

@@ -54,6 +54,7 @@ export const pendingUiSchema = z.discriminatedUnion("kind", [
   }),
   z.object({ kind: z.literal("event_add") }),
   z.object({ kind: z.literal("client_lookup") }),
+  z.object({ kind: z.literal("crm_link"), escalationId: z.string() }),
 ]);
 
 export type PendingUi = z.infer<typeof pendingUiSchema>;

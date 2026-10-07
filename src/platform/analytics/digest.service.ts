@@ -84,6 +84,10 @@ export class DigestService {
     ]);
     const hotOnly = hotLeads.filter((l) => l.heat === "hot");
     const warmLeads = hotLeads.filter((l) => l.heat === "warm");
+    const promised = open.filter((i) => i.followUpKind === "promised_visit").length;
+    const awaitPay = open.filter((i) => i.followUpKind === "await_payment").length;
+    const afterTrial = open.filter((i) => i.followUpKind === "after_trial").length;
+    const nurture = open.filter((i) => i.followUpKind === "nurture").length;
 
     const leadRevenue = open.reduce((sum, item) => sum + (HEAT_REVENUE[item.heat ?? ""] ?? 0), 0);
     const unpaidHint = unpaidCount > 0 ? unpaidCount * 5_000 : 0;
@@ -95,9 +99,13 @@ export class DigestService {
       `🔴 Требуют внимания — **${urgent.length}**`,
       `🟡 Нужно проверить — **${check.length}**`,
       `🟢 Новые заявки — **${fresh.length}**`,
+      `🚶 Обещали прийти — **${promised}**`,
+      `💳 Ждём оплату — **${awaitPay}**`,
+      `👟 После пробного — **${afterTrial}**`,
+      `🌱 Не записались после консультации — **${nurture}**`,
       `🔥 Горячих лидов (бот) — **${hotOnly.length}** · тёплых **${warmLeads.length}**`,
       `📝 CRM заявки (application) — **${applications.length}**`,
-      `👟 Пробные без покупки (sampler >7д) — **${staleSamplers.length}**`,
+      `👟 CRM sampler >7д без покупки — **${staleSamplers.length}**`,
       `💳 Неоплаченных счетов CRM — **${unpaidCount}**`,
       `💰 Потенциальная выручка — **${formatRub(revenue)}**`,
     ].join("\n");
@@ -176,15 +184,19 @@ function classifyAttention(item: Escalation, nowMs: number): AttentionBucket {
   const idleH = (nowMs - new Date(item.updatedAt).getTime()) / 3_600_000;
   const intent = item.intent ?? "";
   const heat = item.heat ?? "";
+  const kind = item.followUpKind ?? "none";
   const note = `${item.followUpNote ?? ""} ${item.reason} ${item.question}`.toLowerCase();
 
   if (
+    kind === "promised_visit" ||
+    kind === "await_payment" ||
+    kind === "after_trial" ||
     heat === "hot" ||
     intent === "conflict" ||
     intent === "complaint" ||
     idleH >= 12 ||
     ageH >= 24 ||
-    /не ответил|обещали оплат|возврат|жалоб|конфликт|обещали прийти|после пробн/.test(note)
+    /не ответил|обещали оплат|возврат|жалоб|конфликт/.test(note)
   ) {
     return "urgent";
   }
@@ -195,14 +207,15 @@ function classifyAttention(item: Escalation, nowMs: number): AttentionBucket {
 }
 
 function caseLabel(item: Escalation, nowMs: number): string {
+  const kind = item.followUpKind ?? "none";
+  if (kind === "promised_visit") return "обещали прийти";
+  if (kind === "await_payment") return "обещали оплатить / ждём оплату";
+  if (kind === "after_trial") return "была на пробном, покупки нет";
+  if (kind === "nurture") return "прогрев — не записались после консультации";
   if (item.followUpNote && item.followUpNote.trim().length > 0) {
     return item.followUpNote.trim();
   }
   const idleH = Math.max(0, Math.round((nowMs - new Date(item.updatedAt).getTime()) / 3_600_000));
-  const note = `${item.reason} ${item.question}`.toLowerCase();
-  if (/обещали прийти|придёт|пробн/.test(note) && item.intent === "new_lead") {
-    return "обещали прийти / ждём на пробное";
-  }
   if (item.status === "open" && idleH >= 1) {
     return `не ответили ${idleH} ч`;
   }

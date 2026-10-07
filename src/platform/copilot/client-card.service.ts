@@ -2,6 +2,8 @@ import type { MongoConnection } from "../../infrastructure/mongo/mongo.client.js
 import type { CrmGuardian, CrmPaymentRecord, CrmStudent, CrmVisitMark } from "../crm-import/types.js";
 import type { EscalationRepository } from "../escalation/escalation.repository.js";
 import type { LeadRepository } from "./lead.repository.js";
+import type { CrmLinkService } from "./crm-link.service.js";
+import type { CrmLinkRepository } from "./crm-link.repository.js";
 
 /** Карточка клиента по команде (ТЗ №7). */
 export class ClientCardService {
@@ -9,6 +11,8 @@ export class ClientCardService {
     private readonly mongo: MongoConnection,
     private readonly escalationDocs: EscalationRepository,
     private readonly leads: LeadRepository,
+    private readonly crmLinks: CrmLinkService,
+    private readonly crmLinkDocs: CrmLinkRepository,
   ) {}
 
   async lookup(queryRaw: string): Promise<string> {
@@ -34,6 +38,18 @@ export class ClientCardService {
 
     for (const student of students.slice(0, 3)) {
       blocks.push(await this.formatStudentCard(student));
+      const url = this.crmLinks.clientUrl(student.crmId);
+      if (url) {
+        blocks.push(`Открыть в CRM: ${url}`);
+      }
+      const tgLink = await this.crmLinkDocs.findByStudentCrmId(student.crmId);
+      if (tgLink) {
+        const history = await this.escalationDocs.listByParent(tgLink.parentTelegramId, 5);
+        blocks.push(
+          `Telegram: ${tgLink.parentUsername ? `@${tgLink.parentUsername}` : tgLink.parentTelegramId}`,
+          ...history.slice(0, 3).map((h) => `• ${h.status}: «${h.question.slice(0, 90)}»`),
+        );
+      }
       blocks.push("");
     }
     if (students.length === 0) {

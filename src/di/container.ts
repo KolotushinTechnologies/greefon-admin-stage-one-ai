@@ -50,6 +50,9 @@ import { LeadRepository } from "../platform/copilot/lead.repository.js";
 import { SalesCoachService } from "../platform/copilot/sales-coach.service.js";
 import { ClientCardService } from "../platform/copilot/client-card.service.js";
 import { ParentInboundDeskService } from "../platform/copilot/parent-inbound-desk.service.js";
+import { CrmLinkRepository } from "../platform/copilot/crm-link.repository.js";
+import { CrmLinkService } from "../platform/copilot/crm-link.service.js";
+import { CrmFunnelRepository } from "../platform/crm-import/crm-funnel.repository.js";
 
 export type AppCradle = {
   env: AppEnv;
@@ -95,6 +98,9 @@ export type AppCradle = {
   leads: LeadRepository;
   clientCard: ClientCardService;
   parentInboundDesk: ParentInboundDeskService;
+  crmLinkDocs: CrmLinkRepository;
+  crmLinks: CrmLinkService;
+  crmFunnel: CrmFunnelRepository;
   contextHints: ContextHintsService;
   problemRadar: ProblemRadarService;
   aiActions: AiActionLogRepository;
@@ -151,6 +157,9 @@ export function buildContainer(env: AppEnv): AwilixContainer<AppCradle> {
     problemRadar: asClass(ProblemRadarService).singleton(),
     salesCoach: asClass(SalesCoachService).singleton(),
     leads: asClass(LeadRepository).singleton(),
+    crmLinkDocs: asClass(CrmLinkRepository).singleton(),
+    crmFunnel: asClass(CrmFunnelRepository).singleton(),
+    crmLinks: asClass(CrmLinkService).singleton(),
     clientCard: asClass(ClientCardService).singleton(),
     copilot: asClass(CopilotService).singleton(),
     parentInboundDesk: asClass(ParentInboundDeskService).singleton(),

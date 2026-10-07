@@ -6,6 +6,7 @@ import type { UsageMeter } from "./usage.meter.js";
 import type { AiActionLogRepository } from "../copilot/ai-action-log.repository.js";
 import type { ProblemRadarService } from "../copilot/problem-radar.service.js";
 import type { CrmPeopleRepository, CrmOpsRepository } from "../crm-import/crm-data.repository.js";
+import type { CrmFunnelRepository } from "../crm-import/crm-funnel.repository.js";
 
 /** Ежедневный отчёт руководителю/админу (ТЗ №9). */
 export class DailyReportService {
@@ -19,6 +20,7 @@ export class DailyReportService {
     private readonly problemRadar: ProblemRadarService,
     private readonly crmPeople: CrmPeopleRepository,
     private readonly crmOps: CrmOpsRepository,
+    private readonly crmFunnel: CrmFunnelRepository,
   ) {}
 
   async build(day = this.usage.moscowDay()): Promise<string> {
@@ -32,10 +34,13 @@ export class DailyReportService {
       cancelledToday,
       problemHits,
       applications,
-      samplers,
-      declined,
+      samplersTouched,
+      declinedTouched,
       visits,
       payments,
+      toApplication,
+      toSampler,
+      toLost,
     ] = await Promise.all([
       this.outbound.countSince(from),
       this.escalationDocs.countOpen(),
@@ -48,28 +53,29 @@ export class DailyReportService {
       this.crmPeople.countStudentsTouchedSince(from, ["declined", "leave"]).catch(() => 0),
       this.crmOps.countVisitMarksSince(from).catch(() => 0),
       this.crmOps.sumPaidSince(from).catch(() => ({ count: 0, amountKopecks: 0 })),
+      this.crmFunnel.countToStatusSince(from, ["application"]).catch(() => 0),
+      this.crmFunnel.countToStatusSince(from, ["sampler"]).catch(() => 0),
+      this.crmFunnel.countToStatusSince(from, ["declined", "leave"]).catch(() => 0),
     ]);
 
     const unpaidOpen = await this.crmOps.countUnpaid().catch(() => 0);
-
-    // Воронка: бот и CRM раздельно, чтобы не склеивать разные источники в одну цифру.
-    const signedUp = samplers;
-    const came = visits;
     const bought = payments.count;
-    const lost = declined + cancelledToday;
     const revenueRub = Math.round(payments.amountKopecks / 100);
     const problems = problemHits.length;
+    const newCrm = Math.max(toApplication, applications);
+    const signedUp = Math.max(toSampler, samplersTouched);
+    const lost = Math.max(toLost, declinedTouched) + cancelledToday;
 
     const lines = [
       `**📊 ГРИФОН — ОТЧЁТ ЗА ${day}**`,
       "",
       "**Воронка (день)**",
-      `🟢 Новые заявки в боте (intent) → **${newLeadsBot}**`,
-      `🟢 CRM application (touched) → **${applications}**`,
-      `📝 Записались CRM sampler → **${signedUp}**`,
-      `👟 Пришли (отметки CRM) → **${came}**`,
+      `🟢 Новые заявки в боте → **${newLeadsBot}**`,
+      `🟢 CRM → application → **${newCrm}**`,
+      `📝 CRM → sampler (записались) → **${signedUp}**`,
+      `👟 Пришли (отметки CRM) → **${visits}**`,
       `💳 Купили (оплаты CRM) → **${bought}**`,
-      `⚪ Потеряны CRM (declined/leave) + отменённые дела → **${lost}**`,
+      `⚪ Потеряны → **${lost}**`,
       "",
       "**Деньги**",
       `Оплат за день: **${bought}** на **${formatRub(revenueRub)}**`,
@@ -91,7 +97,7 @@ export class DailyReportService {
 
     lines.push(
       "",
-      "_CRM-цифры — по synced/updated за сутки после импорта. Бот и CRM не суммируем в одну «заявку»._",
+      "_Переходы CRM — из crm_funnel_events при импорте; если переходов ещё нет, берём touched-статусы._",
     );
     return lines.join("\n");
   }

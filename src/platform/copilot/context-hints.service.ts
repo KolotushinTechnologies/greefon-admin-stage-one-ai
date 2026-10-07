@@ -1,7 +1,9 @@
 import type { EscalationRepository } from "../escalation/escalation.repository.js";
 import type { Escalation } from "../escalation/types.js";
+import { FOLLOW_UP_LABELS, type FollowUpKind } from "../escalation/types.js";
 import type { CrmPeopleRepository, CrmOpsRepository } from "../crm-import/crm-data.repository.js";
 import type { LeadRepository } from "./lead.repository.js";
+import type { CrmLinkService } from "./crm-link.service.js";
 
 /** Подсказки админу перед ответом (ТЗ №8). */
 export class ContextHintsService {
@@ -10,6 +12,7 @@ export class ContextHintsService {
     private readonly leads: LeadRepository,
     private readonly crmPeople: CrmPeopleRepository,
     private readonly crmOps: CrmOpsRepository,
+    private readonly crmLinks: CrmLinkService,
   ) {}
 
   async forEscalation(doc: Escalation): Promise<string[]> {
@@ -57,6 +60,19 @@ export class ContextHintsService {
       }
     }
 
+    const kind = (doc.followUpKind ?? "none") as FollowUpKind;
+    if (kind !== "none") {
+      hints.push(`Метка follow-up: ${FOLLOW_UP_LABELS[kind]}.`);
+    }
+
+    const link = await this.crmLinks.get(doc.parentTelegramId);
+    const linkLine = this.crmLinks.formatShort(link);
+    if (linkLine) {
+      hints.push(linkLine);
+    } else {
+      hints.push("Telegram ещё не привязан к CRM — кнопка «CRM» на карточке.");
+    }
+
     const lead = await this.leads.findByParent(doc.parentTelegramId);
     if (lead?.nextSalesStep) {
       hints.push(`След. шаг продаж: ${lead.nextSalesStep}`);
@@ -99,8 +115,16 @@ export class ContextHintsService {
   private async crmHints(doc: Escalation, childName: string | null): Promise<string[]> {
     const out: string[] = [];
     try {
+      const link = await this.crmLinks.get(doc.parentTelegramId);
       let student = null;
-      if (childName && childName.trim().length >= 2) {
+      if (link?.studentCrmId) {
+        const byStatus = await this.crmPeople.listByStatus(
+          ["active", "all_active", "application", "sampler", "leave", "declined"],
+          80,
+        );
+        student = byStatus.find((s) => s.crmId === link.studentCrmId) ?? null;
+      }
+      if (!student && childName && childName.trim().length >= 2) {
         const list = await this.crmPeople.listByStatus(
           ["active", "all_active", "application", "sampler", "leave", "declined"],
           40,

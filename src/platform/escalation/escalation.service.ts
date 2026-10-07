@@ -8,9 +8,15 @@ import type { CopilotService } from "../copilot/copilot.service.js";
 import type { AiActionLogRepository } from "../copilot/ai-action-log.repository.js";
 import type { ContextHintsService } from "../copilot/context-hints.service.js";
 import type { LeadRepository } from "../copilot/lead.repository.js";
+import type { CrmLinkService } from "../copilot/crm-link.service.js";
 import type { CopilotBrief } from "../copilot/types.js";
 import type { EscalationRepository } from "./escalation.repository.js";
-import type { Escalation } from "./types.js";
+import {
+  FOLLOW_UP_LABELS,
+  followUpKindSchema,
+  type Escalation,
+  type FollowUpKind,
+} from "./types.js";
 import { InlineKeyboard } from "grammy";
 
 export class EscalationService {
@@ -24,6 +30,7 @@ export class EscalationService {
     private readonly aiActions: AiActionLogRepository,
     private readonly contextHints: ContextHintsService,
     private readonly leads: LeadRepository,
+    private readonly crmLinks: CrmLinkService,
   ) {}
 
   async open(input: {
@@ -60,6 +67,8 @@ export class EscalationService {
       intent: brief.intent,
       heat: brief.heat,
       followUpNote: brief.adminHints[0] ?? brief.stageLabel,
+      followUpKind: "none",
+      botAlreadyReplied: input.reason.startsWith("auto_desk:"),
       notices: [],
     });
     await this.usage.bump("escalation");
@@ -73,14 +82,17 @@ export class EscalationService {
         stageLabel: brief.stageLabel,
         nextSalesStep: brief.nextSalesStep,
         draftLen: brief.draftReply.length,
+        botAlreadyReplied: doc.botAlreadyReplied,
       },
     });
 
     const desk = await this.staff.listDesk();
     const who = input.parentDisplayName ?? (input.parentUsername ? `@${input.parentUsername}` : "родитель");
     const whoLine = who + (input.parentUsername ? ` (@${input.parentUsername})` : "");
-    const autoNote = input.reason.startsWith("auto_desk:")
-      ? "⚠️ Бот уже ответил родителю. Черновик — если нужно уточнить/дожать вручную.\n\n"
+    const link = await this.crmLinks.get(input.parentTelegramId);
+    const linkLine = this.crmLinks.formatShort(link);
+    const autoNote = doc.botAlreadyReplied
+      ? "⚠️ Бот уже ответил родителю. Лучше **дожать** вручную, а не слать тот же черновик.\n\n"
       : "";
     const text =
       autoNote +
@@ -88,13 +100,10 @@ export class EscalationService {
         who: whoLine,
         question: input.question,
         brief,
-      });
+      }) +
+      (linkLine ? `\n\n${linkLine}` : "");
     const hintBlock = this.contextHints.formatBlock(await this.contextHints.forEscalation(doc));
-    const keyboard = new InlineKeyboard()
-      .text("Отправить", `e:s:${doc._id}`)
-      .text("Изменить", `e:c:${doc._id}`)
-      .row()
-      .text("Позвонить", `e:p:${doc._id}`);
+    const keyboard = deskCaseKeyboard(doc);
     const notices: Array<{ chatId: string; messageId: number }> = [];
     for (const person of desk) {
       const sent = await this.messenger.sendText(person.telegramUserId, `${text}${hintBlock}`, keyboard);
@@ -198,6 +207,7 @@ export class EscalationService {
     }
     const who = doc.parentDisplayName ?? (doc.parentUsername ? `@${doc.parentUsername}` : "родитель");
     const nick = doc.parentUsername ? `@${doc.parentUsername}` : "username нет";
+    const link = await this.crmLinks.get(doc.parentTelegramId);
     await this.aiActions.record({
       kind: "call_hint_opened",
       actor: "staff",
@@ -209,11 +219,13 @@ export class EscalationService {
       `Позвонить: **${who}**`,
       `Telegram: ${nick}`,
       `id: \`${doc.parentTelegramId}\``,
-      "",
-      "Номера телефона в боте может не быть — открой CRM или напиши в личку.",
+      link?.phone ? `Тел (CRM): ${link.phone}` : "Телефона в связке нет — жми «CRM» и привяжи номер.",
+      this.crmLinks.formatShort(link),
       "",
       `Спрашивали: «${doc.question}»`,
-    ].join("\n");
+    ]
+      .filter((x): x is string => Boolean(x))
+      .join("\n");
   }
 
   /** Карточка дела из утреннего дайджеста. */
@@ -235,28 +247,27 @@ export class EscalationService {
     const idleH = Math.max(0, Math.round((Date.now() - new Date(doc.updatedAt).getTime()) / 3_600_000));
     const hints = this.contextHints.formatBlock(await this.contextHints.forEscalation(doc));
     const lead = await this.leads.findByParent(doc.parentTelegramId);
+    const link = await this.crmLinks.get(doc.parentTelegramId);
+    const kind = (doc.followUpKind ?? "none") as FollowUpKind;
     const text = [
       `**Дело** · ${doc.status === "claimed" ? "в работе" : "открыто"}`,
       who + (doc.parentUsername ? ` (@${doc.parentUsername})` : ""),
       `Намерение: ${doc.intent ?? "—"} · температура: ${doc.heat ?? "—"}`,
+      `Follow-up: ${FOLLOW_UP_LABELS[kind]}`,
       doc.followUpNote ? `Заметка: ${doc.followUpNote}` : null,
       lead?.stageLabel ? `Стадия лида: ${lead.stageLabel}` : null,
       lead?.nextSalesStep ? `💰 След. шаг: ${lead.nextSalesStep}` : null,
+      this.crmLinks.formatShort(link),
+      doc.botAlreadyReplied ? "⚠️ Бот уже ответил родителю" : null,
       `Без движения: ~${idleH} ч`,
       "",
       `«${doc.question}»`,
       "",
-      doc.draftReply ? `Черновик:\n${doc.draftReply}` : "Черновика нет — нажми «Ответ», соберу.",
+      doc.draftReply ? `Черновик:\n${doc.draftReply}` : "Черновика нет — жми «Дожать» / «Изменить».",
       hints,
     ]
       .filter((line): line is string => line !== null)
       .join("\n");
-    const inline = new InlineKeyboard()
-      .text("Отправить", `e:s:${doc._id}`)
-      .text("Изменить", `e:c:${doc._id}`)
-      .row()
-      .text("Позвонить", `e:p:${doc._id}`)
-      .text("Закрыть", `e:x:${doc._id}`);
     await this.aiActions.record({
       kind: "case_opened",
       actor: "staff",
@@ -264,7 +275,43 @@ export class EscalationService {
       escalationId: id,
       parentTelegramId: doc.parentTelegramId,
     });
-    return { text, inline };
+    return { text, inline: deskCaseKeyboard(doc, true) };
+  }
+
+  async setFollowUp(actor: StaffUser, id: string, kindRaw: string): Promise<string> {
+    if (!actor.role || !hasAtLeast(actor.role, "admin")) {
+      throw new AccessDeniedError();
+    }
+    const parsed = followUpKindSchema.safeParse(kindRaw);
+    if (!parsed.success) {
+      return "Неизвестная метка follow-up.";
+    }
+    const kind = parsed.data;
+    const doc = await this.escalationDocs.findById(id);
+    if (!doc) {
+      throw new NotFoundError("Заявку не нашёл.");
+    }
+    const patch: Partial<Escalation> = {
+      followUpKind: kind,
+      followUpNote: FOLLOW_UP_LABELS[kind],
+    };
+    if (kind === "won" || kind === "lost") {
+      patch.status = "cancelled";
+      patch.claimedByTelegramId = actor.telegramUserId;
+    }
+    await this.escalationDocs.update(id, patch);
+    await this.aiActions.record({
+      kind: "follow_up_set",
+      actor: "staff",
+      actorTelegramId: actor.telegramUserId,
+      escalationId: id,
+      parentTelegramId: doc.parentTelegramId,
+      payload: { followUpKind: kind },
+    });
+    if (kind === "won" || kind === "lost") {
+      return `Пометил как «${FOLLOW_UP_LABELS[kind]}» и снял с открытых дел.`;
+    }
+    return `Follow-up: **${FOLLOW_UP_LABELS[kind]}**. Утром попадёт в нужный блок «дел».`;
   }
 
   /** Обновить/показать черновик и перевести в режим правки. */
@@ -392,6 +439,27 @@ export class EscalationService {
     }
     return "Ушло родителю (reply на его вопрос). Запомнила ответ — в следующий раз смогу сама.";
   }
+}
+
+function deskCaseKeyboard(doc: Escalation, withClose = false): InlineKeyboard {
+  const kb = new InlineKeyboard();
+  if (doc.botAlreadyReplied) {
+    kb.text("Дожать", `e:c:${doc._id}`).text("Всё же отправить", `e:s:${doc._id}`);
+  } else {
+    kb.text("Отправить", `e:s:${doc._id}`).text("Изменить", `e:c:${doc._id}`);
+  }
+  kb.row().text("Позвонить", `e:p:${doc._id}`).text("CRM", `e:crm:${doc._id}`);
+  kb.row()
+    .text("→ Придёт", `e:f:promised_visit:${doc._id}`)
+    .text("→ Оплата", `e:f:await_payment:${doc._id}`);
+  kb.row()
+    .text("→ После пробного", `e:f:after_trial:${doc._id}`)
+    .text("→ Прогрев", `e:f:nurture:${doc._id}`);
+  kb.row().text("Купили", `e:f:won:${doc._id}`).text("Потеряны", `e:f:lost:${doc._id}`);
+  if (withClose) {
+    kb.row().text("Закрыть", `e:x:${doc._id}`);
+  }
+  return kb;
 }
 
 /** В группе без reply хотя бы тегнем автора; с reply — тоже полезно в длинных чатах. */
