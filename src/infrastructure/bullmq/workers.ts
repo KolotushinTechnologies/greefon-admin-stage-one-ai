@@ -104,7 +104,11 @@ export function startWorkers(input: {
 
   const digestWorker = new Worker<DigestJob>(
     QUEUE_DIGEST,
-    async () => {
+    async (job) => {
+      if (job.data.reason === "morning") {
+        await input.digest.sendMorningTasks();
+        return;
+      }
       await input.digest.sendEvening();
     },
     { connection: input.connection, concurrency: 1 },

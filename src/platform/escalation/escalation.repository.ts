@@ -34,6 +34,14 @@ export class EscalationRepository {
     return this.col().countDocuments({ status: { $in: ["open", "claimed"] } });
   }
 
+  async listOpen(limit = 40): Promise<Escalation[]> {
+    return this.col()
+      .find({ status: { $in: ["open", "claimed"] } })
+      .sort({ updatedAt: 1 })
+      .limit(Math.min(Math.max(limit, 1), 80))
+      .toArray();
+  }
+
   async countSince(from: Date, status?: EscalationStatus): Promise<number> {
     const query: Record<string, unknown> = { createdAt: { $gte: from } };
     if (status) {

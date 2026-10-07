@@ -50,6 +50,7 @@ export class EscalationService {
       draftReply: brief.draftReply,
       intent: brief.intent,
       heat: brief.heat,
+      followUpNote: brief.adminHints[0] ?? brief.stageLabel,
       notices: [],
     });
     await this.usage.bump("escalation");
@@ -97,7 +98,7 @@ export class EscalationService {
     if (!doc) {
       throw new NotFoundError("Заявку не нашёл.");
     }
-    if (doc.status === "resolved") {
+    if (doc.status === "resolved" || doc.status === "cancelled") {
       return "Эту уже закрыли.";
     }
     if (doc.status === "claimed" && doc.claimedByTelegramId !== actor.telegramUserId) {
@@ -185,6 +186,125 @@ export class EscalationService {
     ].join("\n");
   }
 
+  /** Карточка дела из утреннего дайджеста. */
+  async openCard(actor: StaffUser, id: string): Promise<{ text: string; inline: InlineKeyboard }> {
+    if (!actor.role || !hasAtLeast(actor.role, "admin")) {
+      throw new AccessDeniedError();
+    }
+    const doc = await this.escalationDocs.findById(id);
+    if (!doc) {
+      throw new NotFoundError("Заявку не нашёл.");
+    }
+    if (doc.status === "resolved" || doc.status === "cancelled") {
+      return {
+        text: `Уже закрыто (${doc.status}).\n\n«${doc.question}»`,
+        inline: new InlineKeyboard(),
+      };
+    }
+    const who = doc.parentDisplayName ?? (doc.parentUsername ? `@${doc.parentUsername}` : "родитель");
+    const idleH = Math.max(0, Math.round((Date.now() - new Date(doc.updatedAt).getTime()) / 3_600_000));
+    const text = [
+      `**Дело** · ${doc.status === "claimed" ? "в работе" : "открыто"}`,
+      who + (doc.parentUsername ? ` (@${doc.parentUsername})` : ""),
+      `Намерение: ${doc.intent ?? "—"} · температура: ${doc.heat ?? "—"}`,
+      doc.followUpNote ? `Заметка: ${doc.followUpNote}` : null,
+      `Без движения: ~${idleH} ч`,
+      "",
+      `«${doc.question}»`,
+      "",
+      doc.draftReply ? `Черновик:\n${doc.draftReply}` : "Черновика нет — нажми «Ответ», соберу.",
+    ]
+      .filter((line): line is string => line !== null)
+      .join("\n");
+    const inline = new InlineKeyboard()
+      .text("Отправить", `e:s:${doc._id}`)
+      .text("Изменить", `e:c:${doc._id}`)
+      .row()
+      .text("Позвонить", `e:p:${doc._id}`)
+      .text("Закрыть", `e:x:${doc._id}`);
+    await this.aiActions.record({
+      kind: "case_opened",
+      actor: "staff",
+      actorTelegramId: actor.telegramUserId,
+      escalationId: id,
+      parentTelegramId: doc.parentTelegramId,
+    });
+    return { text, inline };
+  }
+
+  /** Обновить/показать черновик и перевести в режим правки. */
+  async suggestReply(actor: StaffUser, id: string): Promise<string> {
+    if (!actor.role || !hasAtLeast(actor.role, "admin")) {
+      throw new AccessDeniedError();
+    }
+    const doc = await this.escalationDocs.findById(id);
+    if (!doc) {
+      throw new NotFoundError("Заявку не нашёл.");
+    }
+    if (doc.status === "resolved" || doc.status === "cancelled") {
+      return "Это дело уже закрыто.";
+    }
+    let draft = (doc.draftReply ?? "").trim();
+    if (draft.length === 0) {
+      const brief = await this.copilot.analyzeInbound({
+        question: doc.question,
+        reason: doc.reason,
+        parentDisplayName: doc.parentDisplayName,
+      });
+      draft = brief.draftReply;
+      await this.escalationDocs.update(id, {
+        draftReply: draft,
+        intent: brief.intent,
+        heat: brief.heat,
+        followUpNote: brief.adminHints[0] ?? brief.stageLabel,
+      });
+    }
+    await this.aiActions.record({
+      kind: "draft_suggested",
+      actor: "staff",
+      actorTelegramId: actor.telegramUserId,
+      escalationId: id,
+      parentTelegramId: doc.parentTelegramId,
+    });
+    const claimPrompt = await this.claim(actor, id);
+    return `${claimPrompt}\n\nМожно сразу отправить черновик кнопкой «Отправить» в карточке, или пришли свой текст.`;
+  }
+
+  /** Закрыть без ответа родителю (сняли с контроля). */
+  async closeQuietly(actor: StaffUser, id: string): Promise<string> {
+    if (!actor.role || !hasAtLeast(actor.role, "admin")) {
+      throw new AccessDeniedError();
+    }
+    const doc = await this.escalationDocs.findById(id);
+    if (!doc) {
+      throw new NotFoundError("Заявку не нашёл.");
+    }
+    if (doc.status === "resolved" || doc.status === "cancelled") {
+      return "Уже закрыто.";
+    }
+    await this.escalationDocs.update(id, {
+      status: "cancelled",
+      claimedByTelegramId: actor.telegramUserId,
+    });
+    await this.aiActions.record({
+      kind: "case_closed_quietly",
+      actor: "staff",
+      actorTelegramId: actor.telegramUserId,
+      escalationId: id,
+      parentTelegramId: doc.parentTelegramId,
+    });
+    for (const notice of doc.notices) {
+      await this.messenger
+        .editText(
+          notice.chatId,
+          notice.messageId,
+          `Снято с контроля **${actor.displayName ?? actor.username ?? "админ"}**.\n\n«${doc.question}»`,
+        )
+        .catch(() => undefined);
+    }
+    return "Закрыл без ответа родителю. Из «дел на сегодня» пропадёт.";
+  }
+
   async resolve(actor: StaffUser, id: string, answer: string): Promise<string> {
     if (!actor.role || !hasAtLeast(actor.role, "admin")) {
       throw new AccessDeniedError();
@@ -193,7 +313,7 @@ export class EscalationService {
     if (!doc) {
       throw new NotFoundError("Заявку не нашёл.");
     }
-    if (doc.status === "resolved") {
+    if (doc.status === "resolved" || doc.status === "cancelled") {
       return "Эту уже закрыли.";
     }
     const text = answer.trim();

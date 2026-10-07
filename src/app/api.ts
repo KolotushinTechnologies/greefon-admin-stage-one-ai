@@ -34,6 +34,11 @@ if (env.NODE_ENV === "development") {
     { reason: "evening" },
     { repeat: { pattern: "0 20 * * *", tz: "Europe/Moscow" }, jobId: "digest-evening" },
   );
+  await queues.digest.add(
+    "morning",
+    { reason: "morning" },
+    { repeat: { pattern: "0 9 * * *", tz: "Europe/Moscow" }, jobId: "digest-morning" },
+  );
   startWorkers({
     connection: redis.client.duplicate(),
     queues,

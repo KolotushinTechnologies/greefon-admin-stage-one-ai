@@ -12,7 +12,7 @@ export function mainMenuKeyboard(role: StaffRole): Keyboard {
     .text("Темы")
     .text("Филиалы");
   if (hasAtLeast(role, "admin")) {
-    keyboard.row().text("События");
+    keyboard.row().text("События").text("Дела");
   }
   if (hasAtLeast(role, "superadmin")) {
     keyboard.row().text("Заметки").text("Штат");
@@ -166,6 +166,7 @@ export const MENU_COMMANDS = new Set([
   "темы",
   "филиалы",
   "события",
+  "дела",
   "штат",
   "заметки",
 ]);

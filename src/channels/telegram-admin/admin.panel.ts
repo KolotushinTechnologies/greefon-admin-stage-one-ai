@@ -13,6 +13,7 @@ import type { SendService } from "../../platform/messaging/send.service.js";
 import type { SchoolEventService } from "../../platform/events/event.service.js";
 import type { SchoolEventKind } from "../../platform/events/types.js";
 import type { EscalationService } from "../../platform/escalation/escalation.service.js";
+import type { DigestService } from "../../platform/analytics/digest.service.js";
 import { ConfirmationRequiredError } from "../../platform/shared/errors.js";
 import {
   confirmSendKeyboard,
@@ -46,6 +47,7 @@ export class AdminPanel {
     private readonly escalationService: EscalationService,
     private readonly schoolEvents: SchoolEventService,
     private readonly notes: NotesService,
+    private readonly digest: DigestService,
   ) {}
 
   decorate(user: StaffUser, reply: BotReply): BotReply {
@@ -229,6 +231,14 @@ export class AdminPanel {
           return this.decorate(user, { text: "События заводят админ и суперадмин." });
         }
         return this.eventsScreen(user);
+      case "дела":
+        if (!hasAtLeast(user.role, "admin")) {
+          return this.decorate(user, { text: "Дела на сегодня — для админа и суперадмина." });
+        }
+        await this.digest.sendMorningTasks();
+        return this.decorate(user, {
+          text: "Собрал **дела на сегодня** и разослал на стол. Смотри сообщения выше — у каждого кнопки Открыть / Ответ / Закрыть.",
+        });
       case "штат":
         if (!hasAtLeast(user.role, "superadmin")) {
           return this.decorate(user, { text: "Штат может смотреть только суперадмин." });
@@ -288,6 +298,27 @@ export class AdminPanel {
     if (callHint?.[1]) {
       return this.decorate(user, {
         text: await this.escalationService.callHint(user, callHint[1]),
+      });
+    }
+    const openCase = /^e:o:(.+)$/.exec(data);
+    if (openCase?.[1]) {
+      const card = await this.escalationService.openCard(user, openCase[1]);
+      return this.decorate(user, { text: card.text, inline: card.inline, edit: true });
+    }
+    const suggest = /^e:d:(.+)$/.exec(data);
+    if (suggest?.[1]) {
+      const prompt = await this.escalationService.suggestReply(user, suggest[1]);
+      await this.conversations.setPendingUi(user.telegramUserId, {
+        kind: "escalate_answer",
+        escalationId: suggest[1],
+      });
+      return this.decorate(user, { text: prompt });
+    }
+    const closeCase = /^e:x:(.+)$/.exec(data);
+    if (closeCase?.[1]) {
+      return this.decorate(user, {
+        text: await this.escalationService.closeQuietly(user, closeCase[1]),
+        edit: true,
       });
     }
     if (data === "staff:menu" || data.startsWith("staff:")) {
@@ -1258,7 +1289,7 @@ function minRoleForCallback(data: string): StaffRole {
   if (data.startsWith("staff:") || data === "notes" || data.startsWith("notes:")) {
     return "superadmin";
   }
-  if (data.startsWith("e:c:") || data.startsWith("e:s:") || data.startsWith("e:p:")) {
+  if (data.startsWith("e:c:") || data.startsWith("e:s:") || data.startsWith("e:p:") || data.startsWith("e:o:") || data.startsWith("e:d:") || data.startsWith("e:x:")) {
     return "admin";
   }
   if (

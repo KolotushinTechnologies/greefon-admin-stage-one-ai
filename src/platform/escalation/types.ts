@@ -23,9 +23,13 @@ export const escalationSchema = z.object({
   draftReply: z.string().nullable().default(null),
   intent: z.string().nullable().default(null),
   heat: z.string().nullable().default(null),
+  /** Короткая пометка follow-up: «обещали оплатить», «после пробного» и т.п. */
+  followUpNote: z.string().nullable().default(null),
   notices: z.array(staffNoticeSchema),
   createdAt: z.date(),
   updatedAt: z.date(),
 });
 
 export type Escalation = z.infer<typeof escalationSchema>;
+
+export type AttentionBucket = "urgent" | "check" | "new";
