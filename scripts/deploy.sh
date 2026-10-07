@@ -26,12 +26,21 @@ echo "==> docker compose build/up ($COMPOSE_FILE)"
 docker compose -f "$COMPOSE_FILE" up -d --build --remove-orphans
 
 echo "==> health"
-sleep 3
-curl -fsS "http://127.0.0.1:3890/health" || {
-  echo "WARN: health check failed, последние логи api:" >&2
-  docker compose -f "$COMPOSE_FILE" logs --tail=40 api >&2 || true
+ok=0
+for i in $(seq 1 30); do
+  if curl -fsS "http://127.0.0.1:3890/health" >/tmp/greefon-health.json 2>/dev/null; then
+    cat /tmp/greefon-health.json
+    echo
+    ok=1
+    break
+  fi
+  echo "waiting health ($i/30)..."
+  sleep 2
+done
+if [[ "$ok" -ne 1 ]]; then
+  echo "ERROR: health check failed, последние логи api:" >&2
+  docker compose -f "$COMPOSE_FILE" logs --tail=80 api >&2 || true
   exit 1
-}
-echo
+fi
 echo "==> ok"
 docker compose -f "$COMPOSE_FILE" ps
