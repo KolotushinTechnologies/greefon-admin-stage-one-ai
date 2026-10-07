@@ -53,6 +53,7 @@ export const pendingUiSchema = z.discriminatedUnion("kind", [
     fieldIndex: z.number().int().nullable(),
   }),
   z.object({ kind: z.literal("event_add") }),
+  z.object({ kind: z.literal("client_lookup") }),
 ]);
 
 export type PendingUi = z.infer<typeof pendingUiSchema>;

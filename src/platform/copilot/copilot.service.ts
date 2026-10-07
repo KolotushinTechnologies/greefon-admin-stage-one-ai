@@ -1,5 +1,6 @@
 import type { LlmGateway } from "../../infrastructure/llm/llm.types.js";
 import type { KnowledgeService } from "../knowledge/knowledge.service.js";
+import { SalesCoachService } from "./sales-coach.service.js";
 import {
   inboundIntentSchema,
   leadHeatSchema,
@@ -31,19 +32,22 @@ const ANALYZE_SYSTEM = `Ты AI-напарник администратора ш
     "goal": string|null
   },
   "draftReply": "готовый вежливый ответ родителю в стиле Грифона, без скидок и обещаний вне регламента",
-  "adminHints": ["подсказка админу 1", "..."]
+  "adminHints": ["подсказка админу 1", "..."],
+  "nextSalesStep": "один конкретный следующий шаг продаж для администратора"
 }
 
 Правила:
 - Не обещай скидки, возвраты, отмены занятий.
 - Если данных нет — null / пустые подсказки.
 - draftReply на «вы», тёплый, конкретный, с уточняющим вопросом если нужно.
-- heat: hot = готов записаться/платить/срочно; warm = интерес есть, нужна работа; cold = общий вопрос или слабый интерес.`;
+- heat: hot = готов записаться/платить/срочно; warm = интерес есть, нужна работа; cold = общий вопрос или слабый интерес.
+- nextSalesStep: коротко, что сделать админу дальше (записать на пробное / позвонить / напомнить оплату / другой филиал).`;
 
 export class CopilotService {
   constructor(
     private readonly llm: LlmGateway,
     private readonly knowledge: KnowledgeService,
+    private readonly salesCoach: SalesCoachService,
   ) {}
 
   async analyzeInbound(input: {
@@ -70,13 +74,13 @@ export class CopilotService {
       if (turn.kind === "text") {
         const parsed = parseBriefJson(turn.text);
         if (parsed) {
-          return parsed;
+          return this.salesCoach.enrichBrief(parsed, input.question);
         }
       }
     } catch {
       // fallback ниже
     }
-    return fallbackBrief(input.question);
+    return this.salesCoach.enrichBrief(fallbackBrief(input.question), input.question);
   }
 
   formatAdminCard(input: {
@@ -100,6 +104,8 @@ export class CopilotService {
       "«" + input.question + "»",
       "",
       ...leadLines,
+      "",
+      `💰 След. шаг: ${input.brief.nextSalesStep}`,
       "",
       "Предлагаемый ответ:",
       input.brief.draftReply,
@@ -153,6 +159,10 @@ function parseBriefJson(raw: string): CopilotBrief | null {
       adminHints: Array.isArray(json.adminHints)
         ? json.adminHints.filter((item): item is string => typeof item === "string").slice(0, 5)
         : [],
+      nextSalesStep:
+        typeof json.nextSalesStep === "string" && json.nextSalesStep.trim().length > 0
+          ? json.nextSalesStep.trim()
+          : "",
     };
   } catch {
     return null;
@@ -186,6 +196,7 @@ function fallbackBrief(question: string): CopilotBrief {
     draftReply:
       "Здравствуйте! Спасибо за сообщение. Передал коллегам — скоро вернёмся с точным ответом. Если удобно, напишите филиал и возраст ребёнка.",
     adminHints: ["AI не разобрал сообщение — ответьте вручную"],
+    nextSalesStep: "",
   };
 }
 

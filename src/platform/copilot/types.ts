@@ -38,4 +38,15 @@ export type CopilotBrief = {
   draftReply: string;
   adminHints: string[];
   summaryTitle: string;
+  /** Следующий шаг продаж (ТЗ №6). */
+  nextSalesStep: string;
 };
+
+export type SalesStepKind =
+  | "book_trial"
+  | "offer_abonnement"
+  | "remind_payment"
+  | "offer_other_branch"
+  | "call_now"
+  | "nurture"
+  | "resolve_issue";

@@ -16,6 +16,7 @@ import type { EscalationService } from "../../platform/escalation/escalation.ser
 import type { DigestService } from "../../platform/analytics/digest.service.js";
 import type { DailyReportService } from "../../platform/analytics/daily-report.service.js";
 import type { ProblemRadarService } from "../../platform/copilot/problem-radar.service.js";
+import type { ClientCardService } from "../../platform/copilot/client-card.service.js";
 import { ConfirmationRequiredError } from "../../platform/shared/errors.js";
 import {
   confirmSendKeyboard,
@@ -52,6 +53,7 @@ export class AdminPanel {
     private readonly digest: DigestService,
     private readonly problemRadar: ProblemRadarService,
     private readonly dailyReport: DailyReportService,
+    private readonly clientCard: ClientCardService,
   ) {}
 
   decorate(user: StaffUser, reply: BotReply): BotReply {
@@ -258,6 +260,14 @@ export class AdminPanel {
         await this.dailyReport.sendDailyReport();
         return this.decorate(user, {
           text: "Собрал **ежедневный отчёт** и отправил на стол. Смотри сообщение выше.",
+        });
+      case "клиент":
+        if (!hasAtLeast(user.role, "admin")) {
+          return this.decorate(user, { text: "Карточка клиента — для админа и суперадмина." });
+        }
+        await this.conversations.setPendingUi(user.telegramUserId, { kind: "client_lookup" });
+        return this.decorate(user, {
+          text: "Кого ищем? Напиши имя ребёнка/родителя, телефон или `@username`.\nМожно сразу: `клиент Маша Петрова`.",
         });
       case "штат":
         if (!hasAtLeast(user.role, "superadmin")) {
@@ -851,6 +861,22 @@ export class AdminPanel {
     return this.knowledgeCategory(user, "topic", 0);
   }
 
+  /** Прямой запрос: `клиент …` / `карточка …` / `@username`. */
+  async tryClientLookup(user: StaffUser, text: string): Promise<BotReply | null> {
+    if (!hasAtLeast(user.role, "admin")) {
+      return null;
+    }
+    const trimmed = text.trim();
+    const prefixed = /^(?:клиент|карточка|карта)\s+(.+)$/i.exec(trimmed);
+    const atOnly = /^@[\w\d_]{3,}$/i.test(trimmed) ? trimmed : null;
+    const query = prefixed?.[1]?.trim() || atOnly;
+    if (!query) {
+      return null;
+    }
+    const card = await this.clientCard.lookup(query);
+    return this.decorate(user, { text: card });
+  }
+
   async consumePendingUi(user: StaffUser, text: string): Promise<BotReply | null> {
     const state = await this.conversations.load(user.telegramUserId);
     if (!state.pendingUi) {
@@ -861,6 +887,11 @@ export class AdminPanel {
     if (pendingDenied) {
       await this.conversations.setPendingUi(user.telegramUserId, null);
       return pendingDenied;
+    }
+    if (pending.kind === "client_lookup") {
+      await this.conversations.setPendingUi(user.telegramUserId, null);
+      const card = await this.clientCard.lookup(text);
+      return this.decorate(user, { text: card });
     }
     if (pending.kind === "assign_role" || pending.kind === "revoke_role") {
       const target = parseStaffTarget(text);
@@ -1334,7 +1365,13 @@ function minRoleForPending(kind: string): StaffRole {
   if (kind === "assign_role" || kind === "revoke_role") {
     return "superadmin";
   }
-  if (kind === "edit_schedule" || kind === "escalate_answer" || kind === "kb_field" || kind === "event_add") {
+  if (
+    kind === "edit_schedule" ||
+    kind === "escalate_answer" ||
+    kind === "kb_field" ||
+    kind === "event_add" ||
+    kind === "client_lookup"
+  ) {
     return "admin";
   }
   return "operator";

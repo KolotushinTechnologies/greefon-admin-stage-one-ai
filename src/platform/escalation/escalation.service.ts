@@ -7,6 +7,7 @@ import type { UsageMeter } from "../analytics/usage.meter.js";
 import type { CopilotService } from "../copilot/copilot.service.js";
 import type { AiActionLogRepository } from "../copilot/ai-action-log.repository.js";
 import type { ContextHintsService } from "../copilot/context-hints.service.js";
+import type { LeadRepository } from "../copilot/lead.repository.js";
 import type { EscalationRepository } from "./escalation.repository.js";
 import type { Escalation } from "./types.js";
 import { InlineKeyboard } from "grammy";
@@ -21,6 +22,7 @@ export class EscalationService {
     private readonly copilot: CopilotService,
     private readonly aiActions: AiActionLogRepository,
     private readonly contextHints: ContextHintsService,
+    private readonly leads: LeadRepository,
   ) {}
 
   async open(input: {
@@ -64,6 +66,7 @@ export class EscalationService {
         intent: brief.intent,
         heat: brief.heat,
         stageLabel: brief.stageLabel,
+        nextSalesStep: brief.nextSalesStep,
         draftLen: brief.draftReply.length,
       },
     });
@@ -90,6 +93,19 @@ export class EscalationService {
       }
     }
     const updated = await this.escalationDocs.update(doc._id, { notices });
+    await this.leads.upsertFromEscalation({
+      parentTelegramId: input.parentTelegramId,
+      parentUsername: input.parentUsername,
+      parentDisplayName: input.parentDisplayName,
+      escalationId: doc._id,
+      intent: brief.intent,
+      heat: brief.heat,
+      heatWhy: brief.heatWhy,
+      stageLabel: brief.stageLabel,
+      nextSalesStep: brief.nextSalesStep,
+      lead: brief.lead,
+      question: input.question,
+    });
     return updated ?? doc;
   }
 
@@ -208,11 +224,14 @@ export class EscalationService {
     const who = doc.parentDisplayName ?? (doc.parentUsername ? `@${doc.parentUsername}` : "родитель");
     const idleH = Math.max(0, Math.round((Date.now() - new Date(doc.updatedAt).getTime()) / 3_600_000));
     const hints = this.contextHints.formatBlock(await this.contextHints.forEscalation(doc));
+    const lead = await this.leads.findByParent(doc.parentTelegramId);
     const text = [
       `**Дело** · ${doc.status === "claimed" ? "в работе" : "открыто"}`,
       who + (doc.parentUsername ? ` (@${doc.parentUsername})` : ""),
       `Намерение: ${doc.intent ?? "—"} · температура: ${doc.heat ?? "—"}`,
       doc.followUpNote ? `Заметка: ${doc.followUpNote}` : null,
+      lead?.stageLabel ? `Стадия лида: ${lead.stageLabel}` : null,
+      lead?.nextSalesStep ? `💰 След. шаг: ${lead.nextSalesStep}` : null,
       `Без движения: ~${idleH} ч`,
       "",
       `«${doc.question}»`,

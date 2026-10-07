@@ -403,6 +403,12 @@ export class TelegramAdminChannel {
       return;
     }
 
+    const clientReply = await this.panel.tryClientLookup(user, text);
+    if (clientReply) {
+      await this.deliver(chatId, clientReply);
+      return;
+    }
+
     const lowered = text.trim().toLowerCase();
     if (!MENU_COMMANDS.has(lowered)) {
       const answer = await this.messenger.whileTyping(chatId, () =>
