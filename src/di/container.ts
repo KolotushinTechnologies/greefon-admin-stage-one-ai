@@ -32,6 +32,7 @@ import { EscalationRepository } from "../platform/escalation/escalation.reposito
 import { EscalationService } from "../platform/escalation/escalation.service.js";
 import { UsageMeter } from "../platform/analytics/usage.meter.js";
 import { DigestService } from "../platform/analytics/digest.service.js";
+import { DailyReportService } from "../platform/analytics/daily-report.service.js";
 import { SchoolEventRepository } from "../platform/events/event.repository.js";
 import { SchoolEventService } from "../platform/events/event.service.js";
 import { CrmPeopleRepository, CrmOpsRepository } from "../platform/crm-import/crm-data.repository.js";
@@ -91,6 +92,7 @@ export type AppCradle = {
   aiActions: AiActionLogRepository;
   usage: UsageMeter;
   digest: DigestService;
+  dailyReport: DailyReportService;
   schoolEventDocs: SchoolEventRepository;
   schoolEvents: SchoolEventService;
 };
@@ -143,6 +145,7 @@ export function buildContainer(env: AppEnv): AwilixContainer<AppCradle> {
     escalationService: asClass(EscalationService).singleton(),
     usage: asClass(UsageMeter).singleton(),
     digest: asClass(DigestService).singleton(),
+    dailyReport: asClass(DailyReportService).singleton(),
     schoolEventDocs: asClass(SchoolEventRepository).singleton(),
     schoolEvents: asClass(SchoolEventService).singleton(),
   });

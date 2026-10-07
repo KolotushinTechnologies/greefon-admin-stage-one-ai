@@ -14,6 +14,7 @@ import type { SchoolEventService } from "../../platform/events/event.service.js"
 import type { SchoolEventKind } from "../../platform/events/types.js";
 import type { EscalationService } from "../../platform/escalation/escalation.service.js";
 import type { DigestService } from "../../platform/analytics/digest.service.js";
+import type { DailyReportService } from "../../platform/analytics/daily-report.service.js";
 import type { ProblemRadarService } from "../../platform/copilot/problem-radar.service.js";
 import { ConfirmationRequiredError } from "../../platform/shared/errors.js";
 import {
@@ -50,6 +51,7 @@ export class AdminPanel {
     private readonly notes: NotesService,
     private readonly digest: DigestService,
     private readonly problemRadar: ProblemRadarService,
+    private readonly dailyReport: DailyReportService,
   ) {}
 
   decorate(user: StaffUser, reply: BotReply): BotReply {
@@ -248,6 +250,14 @@ export class AdminPanel {
         await this.problemRadar.sendRadar();
         return this.decorate(user, {
           text: "Прогнал **радар проблем**. Смотри сообщения выше — если есть красные зоны, там кнопки.",
+        });
+      case "отчёт":
+        if (!hasAtLeast(user.role, "admin")) {
+          return this.decorate(user, { text: "Отчёт — для админа и суперадмина." });
+        }
+        await this.dailyReport.sendDailyReport();
+        return this.decorate(user, {
+          text: "Собрал **ежедневный отчёт** и отправил на стол. Смотри сообщение выше.",
         });
       case "штат":
         if (!hasAtLeast(user.role, "superadmin")) {

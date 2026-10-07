@@ -121,6 +121,17 @@ export class CrmPeopleRepository {
   async countGuardians(): Promise<number> {
     return this.guardians().countDocuments();
   }
+
+  /** Студенты, обновлённые/созданные в окне (по syncedAt/updatedAt). */
+  async countStudentsTouchedSince(from: Date, statuses?: string[]): Promise<number> {
+    const query: Record<string, unknown> = {
+      $or: [{ syncedAt: { $gte: from } }, { updatedAt: { $gte: from } }, { createdAt: { $gte: from } }],
+    };
+    if (statuses && statuses.length > 0) {
+      query.status = { $in: statuses };
+    }
+    return this.students().countDocuments(query);
+  }
 }
 
 export class CrmOpsRepository {
@@ -360,6 +371,25 @@ export class CrmOpsRepository {
       return this.payments().countDocuments({ purpose: "training" });
     }
     return this.payments().countDocuments({ purpose: { $in: ["online", "online_training"] } });
+  }
+
+  async sumPaidSince(from: Date): Promise<{ count: number; amountKopecks: number }> {
+    const rows = await this.payments()
+      .find({
+        paid: true,
+        $or: [{ syncedAt: { $gte: from } }, { updatedAt: { $gte: from } }, { createdAt: { $gte: from } }],
+      })
+      .project({ amountKopecks: 1 })
+      .toArray();
+    const amountKopecks = rows.reduce((sum, row) => sum + (Number(row.amountKopecks) || 0), 0);
+    return { count: rows.length, amountKopecks };
+  }
+
+  async countVisitMarksSince(from: Date): Promise<number> {
+    return this.visits().countDocuments({
+      $or: [{ syncedAt: { $gte: from } }, { updatedAt: { $gte: from } }, { createdAt: { $gte: from } }],
+      value: { $nin: ["", "0", "false", "null"] },
+    });
   }
 
   async countSessions(): Promise<number> {

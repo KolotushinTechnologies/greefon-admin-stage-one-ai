@@ -19,6 +19,7 @@ import type { SendService } from "../../platform/messaging/send.service.js";
 import type { KnowledgeService } from "../../platform/knowledge/knowledge.service.js";
 import type { CrmSyncService } from "../../platform/org/crm-sync.service.js";
 import type { DigestService } from "../../platform/analytics/digest.service.js";
+import type { DailyReportService } from "../../platform/analytics/daily-report.service.js";
 import type { ProblemRadarService } from "../../platform/copilot/problem-radar.service.js";
 
 export function startWorkers(input: {
@@ -31,6 +32,7 @@ export function startWorkers(input: {
   crmSync: CrmSyncService;
   digest: DigestService;
   problemRadar: ProblemRadarService;
+  dailyReport: DailyReportService;
 }): Worker[] {
   const sendWorker = new Worker<TelegramSendJob>(
     QUEUE_TELEGRAM_SEND,
@@ -113,6 +115,10 @@ export function startWorkers(input: {
       }
       if (job.data.reason === "radar") {
         await input.problemRadar.sendRadar();
+        return;
+      }
+      if (job.data.reason === "report" || job.data.reason === "evening") {
+        await input.dailyReport.sendDailyReport();
         return;
       }
       await input.digest.sendEvening();

@@ -58,6 +58,20 @@ export class EscalationRepository {
       .toArray();
   }
 
+  async countByStatusSince(from: Date, statuses: EscalationStatus[]): Promise<number> {
+    return this.col().countDocuments({
+      createdAt: { $gte: from },
+      status: { $in: statuses },
+    });
+  }
+
+  async countIntentSince(from: Date, intents: string[]): Promise<number> {
+    return this.col().countDocuments({
+      createdAt: { $gte: from },
+      intent: { $in: intents },
+    });
+  }
+
   async countSince(from: Date, status?: EscalationStatus): Promise<number> {
     const query: Record<string, unknown> = { createdAt: { $gte: from } };
     if (status) {

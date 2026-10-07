@@ -28,10 +28,11 @@ function appLogError(error: unknown): void {
 }
 
 if (env.NODE_ENV === "development") {
-  const { queues, redis, messenger, outbound, send, knowledge, crmSync, digest, problemRadar } = container.cradle;
+  const { queues, redis, messenger, outbound, send, knowledge, crmSync, digest, problemRadar, dailyReport } =
+    container.cradle;
   await queues.digest.add(
     "evening",
-    { reason: "evening" },
+    { reason: "report" },
     { repeat: { pattern: "0 20 * * *", tz: "Europe/Moscow" }, jobId: "digest-evening" },
   );
   await queues.digest.add(
@@ -54,6 +55,7 @@ if (env.NODE_ENV === "development") {
     crmSync,
     digest,
     problemRadar,
+    dailyReport,
   });
 }
 

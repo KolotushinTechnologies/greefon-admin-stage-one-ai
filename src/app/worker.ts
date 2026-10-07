@@ -7,11 +7,12 @@ const env = loadEnv();
 const container = buildContainer(env);
 await connectInfrastructure(container);
 
-const { queues, redis, messenger, outbound, send, knowledge, crmSync, digest, problemRadar, events } = container.cradle;
+const { queues, redis, messenger, outbound, send, knowledge, crmSync, digest, problemRadar, dailyReport, events } =
+  container.cradle;
 
 await queues.digest.add(
   "evening",
-  { reason: "evening" },
+  { reason: "report" },
   { repeat: { pattern: "0 20 * * *", tz: "Europe/Moscow" }, jobId: "digest-evening" },
 );
 await queues.digest.add(
@@ -35,6 +36,7 @@ const workers = startWorkers({
   crmSync,
   digest,
   problemRadar,
+  dailyReport,
 });
 
 const shutdown = async () => {

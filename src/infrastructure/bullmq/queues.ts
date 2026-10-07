@@ -27,7 +27,7 @@ export type CrmSyncJob = {
 };
 
 export type DigestJob = {
-  reason: "evening" | "morning" | "radar";
+  reason: "evening" | "morning" | "radar" | "report";
 };
 
 const defaultJob: JobsOptions = {
