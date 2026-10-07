@@ -52,6 +52,15 @@ export class EscalationService {
         parentDisplayName: input.parentDisplayName,
       }));
 
+    const botAlreadyReplied = input.reason.startsWith("auto_desk:");
+    // Если бот уже ответил родителю — на стол кладём уточнение без второго «Здравствуйте».
+    const deskDraft = botAlreadyReplied
+      ? toFollowUpDraft(brief.draftReply, brief.nextSalesStep)
+      : brief.draftReply;
+    const briefForCard: CopilotBrief = botAlreadyReplied
+      ? { ...brief, draftReply: deskDraft }
+      : brief;
+
     const doc = await this.escalationDocs.insert({
       status: "open",
       parentTelegramId: input.parentTelegramId,
@@ -63,12 +72,12 @@ export class EscalationService {
       reason: input.reason,
       claimedByTelegramId: null,
       answer: null,
-      draftReply: brief.draftReply,
+      draftReply: deskDraft,
       intent: brief.intent,
       heat: brief.heat,
       followUpNote: brief.adminHints[0] ?? brief.stageLabel,
       followUpKind: "none",
-      botAlreadyReplied: input.reason.startsWith("auto_desk:"),
+      botAlreadyReplied,
       notices: [],
     });
     await this.usage.bump("escalation");
@@ -81,8 +90,8 @@ export class EscalationService {
         heat: brief.heat,
         stageLabel: brief.stageLabel,
         nextSalesStep: brief.nextSalesStep,
-        draftLen: brief.draftReply.length,
-        botAlreadyReplied: doc.botAlreadyReplied,
+        draftLen: deskDraft.length,
+        botAlreadyReplied,
       },
     });
 
@@ -91,15 +100,20 @@ export class EscalationService {
     const whoLine = who + (input.parentUsername ? ` (@${input.parentUsername})` : "");
     const link = await this.crmLinks.get(input.parentTelegramId);
     const linkLine = this.crmLinks.formatShort(link);
-    const autoNote = doc.botAlreadyReplied
-      ? "⚠️ Бот уже ответил родителю. Лучше **дожать** вручную, а не слать тот же черновик.\n\n"
+    const autoNote = botAlreadyReplied
+      ? [
+          "⚠️ **Бот уже ответил родителю** (часто кнопками зала/расписания).",
+          "Ниже — **уточнение без повторного приветствия**.",
+          "Жми **Дожать** (свой текст) или **Дослать уточнение**. Не шли полное «Здравствуйте» заново.",
+          "",
+        ].join("\n")
       : "";
     const text =
       autoNote +
       this.copilot.formatAdminCard({
         who: whoLine,
         question: input.question,
-        brief,
+        brief: briefForCard,
       }) +
       (linkLine ? `\n\n${linkLine}` : "");
     const hintBlock = this.contextHints.formatBlock(await this.contextHints.forEscalation(doc));
@@ -182,9 +196,14 @@ export class EscalationService {
     if (!doc) {
       throw new NotFoundError("Заявку не нашёл.");
     }
-    const draft = (doc.draftReply ?? "").trim();
+    let draft = (doc.draftReply ?? "").trim();
     if (draft.length === 0) {
-      return "Черновика нет — жми «Изменить» и напиши ответ сам.";
+      return "Черновика нет — жми «Дожать» / «Изменить» и напиши ответ сам.";
+    }
+    // Страховка: если бот уже писал родителю — не пускаем повторное приветствие.
+    if (doc.botAlreadyReplied) {
+      draft = toFollowUpDraft(draft, doc.followUpNote ?? "");
+      await this.escalationDocs.update(id, { draftReply: draft });
     }
     await this.aiActions.record({
       kind: "draft_send_confirmed",
@@ -192,7 +211,7 @@ export class EscalationService {
       actorTelegramId: actor.telegramUserId,
       escalationId: id,
       parentTelegramId: doc.parentTelegramId,
-      payload: { draftLen: draft.length },
+      payload: { draftLen: draft.length, followUp: Boolean(doc.botAlreadyReplied) },
     });
     return this.resolve(actor, id, draft);
   }
@@ -258,12 +277,16 @@ export class EscalationService {
       lead?.stageLabel ? `Стадия лида: ${lead.stageLabel}` : null,
       lead?.nextSalesStep ? `💰 След. шаг: ${lead.nextSalesStep}` : null,
       this.crmLinks.formatShort(link),
-      doc.botAlreadyReplied ? "⚠️ Бот уже ответил родителю" : null,
+      doc.botAlreadyReplied
+        ? "⚠️ Бот уже ответил родителю — ниже уточнение, не полное приветствие"
+        : null,
       `Без движения: ~${idleH} ч`,
       "",
       `«${doc.question}»`,
       "",
-      doc.draftReply ? `Черновик:\n${doc.draftReply}` : "Черновика нет — жми «Дожать» / «Изменить».",
+      doc.draftReply
+        ? `${doc.botAlreadyReplied ? "Уточнение" : "Черновик"}:\n${doc.draftReply}`
+        : "Черновика нет — жми «Дожать» / «Изменить».",
       hints,
     ]
       .filter((line): line is string => line !== null)
@@ -444,7 +467,7 @@ export class EscalationService {
 function deskCaseKeyboard(doc: Escalation, withClose = false): InlineKeyboard {
   const kb = new InlineKeyboard();
   if (doc.botAlreadyReplied) {
-    kb.text("Дожать", `e:c:${doc._id}`).text("Всё же отправить", `e:s:${doc._id}`);
+    kb.text("Дожать", `e:c:${doc._id}`).text("Дослать уточнение", `e:s:${doc._id}`);
   } else {
     kb.text("Отправить", `e:s:${doc._id}`).text("Изменить", `e:c:${doc._id}`);
   }
@@ -460,6 +483,28 @@ function deskCaseKeyboard(doc: Escalation, withClose = false): InlineKeyboard {
     kb.row().text("Закрыть", `e:x:${doc._id}`);
   }
   return kb;
+}
+
+/** Убирает повторное приветствие — для карточек, где бот уже ответил родителю. */
+function toFollowUpDraft(fullDraft: string, nextSalesStep: string): string {
+  let text = fullDraft.trim();
+  text = text.replace(
+    /^(?:здравствуйте|добрый\s+день|добрый\s+вечер|привет|рады\s+приветствовать[^.!?\n]*[.!?]?\s*)+/iu,
+    "",
+  );
+  text = text.replace(/\s+/g, " ").trim();
+  if (looksLikeGreeting(text) || text.length < 24) {
+    const step = nextSalesStep.trim();
+    if (step.length > 0) {
+      return `Чтобы продолжить: ${step}. Напишите, пожалуйста, имя ребёнка — зафиксируем запись на пробное.`;
+    }
+    return "Напишите, пожалуйста, имя ребёнка и удобный день — запишем на ближайшее пробное.";
+  }
+  return text;
+}
+
+function looksLikeGreeting(text: string): boolean {
+  return /^(здравствуйте|добрый\s+день|привет)\b/iu.test(text.trim());
 }
 
 /** В группе без reply хотя бы тегнем автора; с reply — тоже полезно в длинных чатах. */

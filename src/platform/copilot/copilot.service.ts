@@ -107,7 +107,7 @@ export class CopilotService {
       "",
       `💰 След. шаг: ${input.brief.nextSalesStep}`,
       "",
-      "Предлагаемый ответ:",
+      "Предлагаемый текст админу:",
       input.brief.draftReply,
       hints,
     ]

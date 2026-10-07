@@ -73,18 +73,12 @@ export class TelegramAdminChannel {
             await this.messenger.sendText(chatId, "Эта кнопка уже не действует.");
             return;
           }
+          // Список залов/тренеров оставляем как есть — детали всегда новым сообщением.
           const inGroup = Boolean(ctx.chat && ctx.chat.type !== "private");
           if (inGroup) {
             const tagged = `${mentionMarkdown(from)}\n\n${reply.text}`;
             await this.messenger.sendText(chatId, tagged, reply.inline);
             return;
-          }
-          const messageId = ctx.callbackQuery.message?.message_id;
-          if (messageId !== undefined && reply.inline) {
-            const edited = await this.messenger.editText(chatId, messageId, reply.text, reply.inline);
-            if (edited) {
-              return;
-            }
           }
           await this.messenger.sendText(chatId, reply.text, reply.inline);
         } catch (error) {
